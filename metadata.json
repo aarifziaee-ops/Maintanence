@@ -1,0 +1,5 @@
+{
+  "name": "Continental Heights B Wing ",
+  "description": "Mobile-first maintenance collection system for Continental Heights B Wing. Manage 231 flats, generate receipts, send via WhatsApp, and track payments with AI-powered insights.",
+  "requestFramePermissions": []
+}

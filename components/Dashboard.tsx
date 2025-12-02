@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
 import { AppState, PaymentStatus } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { formatCurrency } from '../utils/helpers';
-import { Sparkles, TrendingUp, Users } from 'lucide-react';
+import { Sparkles, TrendingUp, Users, IndianRupee, AlertCircle } from 'lucide-react';
 import { generateFinancialInsight } from '../services/geminiService';
 
 interface DashboardProps {
@@ -39,27 +40,57 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
   return (
     <div className="p-4 space-y-6">
-      {/* Key Stats Cards */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-          <div className="flex items-center space-x-2 text-slate-500 mb-1">
-            <TrendingUp size={16} />
-            <span className="text-xs font-semibold uppercase">Collected Today</span>
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{formatCurrency(todayCollected)}</p>
+      
+      {/* Financial Stats - Separated */}
+      <div className="space-y-4">
+        
+        {/* Card 1: Total Collected */}
+        <div className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white relative overflow-hidden">
+            <div className="relative z-10">
+                <p className="text-blue-100 text-sm font-medium mb-1 flex items-center">
+                    <IndianRupee size={16} className="mr-1" />
+                    Total Collection
+                </p>
+                <h2 className="text-4xl font-bold">{formatCurrency(totalCollected)}</h2>
+            </div>
+            {/* Decorative circle */}
+            <div className="absolute -right-6 -top-6 w-24 h-24 bg-blue-500 rounded-full opacity-50 blur-xl"></div>
         </div>
+
+        {/* Card 2: Collected Today */}
+        <div className="bg-emerald-500 p-6 rounded-2xl shadow-lg shadow-emerald-200 text-white relative overflow-hidden">
+             <div className="relative z-10">
+                <p className="text-emerald-100 text-sm font-medium mb-1 flex items-center">
+                    <TrendingUp size={16} className="mr-1" />
+                    Collected Today
+                </p>
+                <h2 className="text-4xl font-bold">{formatCurrency(todayCollected)}</h2>
+             </div>
+             {/* Decorative circle */}
+            <div className="absolute -right-6 -top-6 w-24 h-24 bg-emerald-400 rounded-full opacity-50 blur-xl"></div>
+        </div>
+
+      </div>
+
+      {/* Counts Grid */}
+      <div className="grid grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
            <div className="flex items-center space-x-2 text-slate-500 mb-1">
             <Users size={16} />
-            <span className="text-xs font-semibold uppercase">Total Paid</span>
+            <span className="text-xs font-semibold uppercase">Paid Flats</span>
           </div>
-          <p className="text-2xl font-bold text-slate-900">{paidCount} <span className="text-sm font-normal text-slate-400">/ {state.flats.length}</span></p>
+          <p className="text-2xl font-bold text-slate-900">{paidCount}</p>
+          <p className="text-xs text-slate-400">out of {state.flats.length}</p>
         </div>
-      </div>
-
-      <div className="bg-blue-600 p-6 rounded-2xl shadow-lg shadow-blue-200 text-white">
-        <p className="text-blue-100 text-sm font-medium mb-1">Total Collection (Cycle)</p>
-        <h2 className="text-4xl font-bold">{formatCurrency(totalCollected)}</h2>
+        
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+           <div className="flex items-center space-x-2 text-slate-500 mb-1">
+            <AlertCircle size={16} />
+            <span className="text-xs font-semibold uppercase">Pending</span>
+          </div>
+          <p className="text-2xl font-bold text-slate-900">{unpaidCount}</p>
+           <p className="text-xs text-slate-400">flats remaining</p>
+        </div>
       </div>
 
       {/* Chart */}

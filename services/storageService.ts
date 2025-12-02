@@ -294,7 +294,10 @@ export const processPayment = (
   if (customDate) {
     // Append T12:00:00 to ensure date is parsed as local noon, preventing timezone shifts 
     // (e.g., UTC midnight appearing as previous day in Western hemisphere)
-    dateObj = new Date(`${customDate}T12:00:00`); 
+    const validCheck = new Date(`${customDate}T12:00:00`);
+    if (!isNaN(validCheck.getTime())) {
+        dateObj = validCheck;
+    }
   }
   
   const timestamp = dateObj.getTime();
@@ -382,9 +385,12 @@ export const updateTransaction = (
   let newTimestamp = originalTx.timestamp;
 
   if (updates.date) {
-    const dateObj = new Date(`${updates.date}T12:00:00`);
-    newDateStr = dateObj.toISOString();
-    newTimestamp = dateObj.getTime();
+    const validCheck = new Date(`${updates.date}T12:00:00`);
+    if (!isNaN(validCheck.getTime())) {
+        const dateObj = validCheck;
+        newDateStr = dateObj.toISOString();
+        newTimestamp = dateObj.getTime();
+    }
   }
   
   // Update Transaction

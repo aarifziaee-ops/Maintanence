@@ -10,12 +10,20 @@ export const formatCurrency = (amount: number): string => {
 };
 
 export const formatDate = (dateString: string): string => {
+  if (!dateString) return '';
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
+  // Safety Check: isNaN(date.getTime()) checks for Invalid Date
+  if (isNaN(date.getTime())) return 'Invalid Date';
+  
+  try {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(date);
+  } catch (error) {
+    return 'Invalid Date';
+  }
 };
 
 export const getTodayDateString = (): string => {
@@ -50,13 +58,15 @@ export const generateWhatsAppLink = (
   amount: number, 
   date: string
 ): string => {
+  if (!mobile) return '#';
+  
   // Remove non-digit chars from mobile
   const cleanMobile = mobile.replace(/\D/g, '');
   const finalMobile = cleanMobile.startsWith('91') ? cleanMobile : `91${cleanMobile}`;
 
   const message = `*PAYMENT RECEIPT*\n${BUILDING_NAME}\n\nReceipt No: ${receiptNo}\nDate: ${date}\n\nReceived with thanks from:\nName: *${name}*\nFlat No: *${flat}*\n\nAmount: *Rs. ${amount}*\n(${amountToWords(amount)})\n\nStatus: *PAID*\n\nThank you for your timely payment.`;
   
-  return `https://wa.me/${finalMobile}?text=${encodeURIComponent(message)}`;
+  return `https://api.whatsapp.com/send?phone=${finalMobile}&text=${encodeURIComponent(message)}`;
 };
 
 export const downloadSampleCsv = () => {

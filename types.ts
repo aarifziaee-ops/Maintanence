@@ -27,6 +27,10 @@ export interface AppState {
   flats: Flat[];
   transactions: Transaction[];
   lastReceiptNo: number;
+  aiInsight?: {
+    text: string;
+    timestamp: number;
+  };
 }
 
 export type ViewState = 'DASHBOARD' | 'PAYMENT' | 'REPORTS' | 'UNPAID_LIST' | 'SETTINGS';

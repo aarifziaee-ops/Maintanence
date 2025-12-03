@@ -27,7 +27,12 @@ export const formatDate = (dateString: string): string => {
 };
 
 export const getTodayDateString = (): string => {
-  return new Date().toISOString().split('T')[0];
+  // Returns YYYY-MM-DD in Local Time (Not UTC)
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 // Simple Number to Words for typical amounts (up to 99,999)
@@ -81,6 +86,23 @@ export const downloadSampleCsv = () => {
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
   link.setAttribute("download", "flat_details_sample.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+export const downloadTransactionSampleCsv = () => {
+  const headers = "Date,FlatNumber,Amount,ReceiptNo,OwnerName";
+  const rows = [
+    "2023-10-01,B-0801,2000,101,Amit Kumar",
+    "2023-10-02,B-0802,2000,,Sneha Gupta", // Empty receipt no = auto generate
+    "2023-10-05,B-1105,2000,105," // Empty owner = use existing
+  ];
+  const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "transaction_import_sample.csv");
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

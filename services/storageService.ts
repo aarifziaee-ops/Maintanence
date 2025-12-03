@@ -262,6 +262,7 @@ const getInitialState = (): AppState => {
     flats,
     transactions: [],
     lastReceiptNo: 0, 
+    aiInsight: undefined
   };
 };
 
@@ -277,6 +278,18 @@ export const loadData = (): AppState => {
 
 export const saveData = (data: AppState) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+};
+
+export const updateInsight = (currentState: AppState, text: string): AppState => {
+  const newState = {
+    ...currentState,
+    aiInsight: {
+      text,
+      timestamp: Date.now()
+    }
+  };
+  saveData(newState);
+  return newState;
 };
 
 export const processPayment = (
@@ -326,6 +339,7 @@ export const processPayment = (
   };
 
   const newState: AppState = {
+    ...currentState, // Preserve insight and other future fields
     flats: updatedFlats,
     transactions: [newTransaction, ...currentState.transactions],
     lastReceiptNo: newReceiptNo
@@ -477,24 +491,23 @@ const parseDateRobust = (dateStr: string, timeStr: string = ''): { iso: string, 
      return { iso: now.toISOString(), ts: now.getTime() };
   }
 
-  // Case 1: Try Standard Constructor (works for ISO and US format MM/DD/YYYY)
-  const fullStr = timeStr ? `${dateStr} ${timeStr}` : dateStr;
-  let d = new Date(fullStr);
+  // Normalize separators
+  let cleanDateStr = dateStr.trim();
   
-  if (!isNaN(d.getTime())) {
-    return { iso: d.toISOString(), ts: d.getTime() };
-  }
-
-  // Case 2: Handle DD/MM/YYYY or D/M/YYYY (Common in India/UK)
-  const parts = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (parts) {
-    // parts[1] = day, parts[2] = month, parts[3] = year
-    const day = parseInt(parts[1], 10);
-    const month = parseInt(parts[2], 10) - 1; // Month is 0-indexed
-    const year = parseInt(parts[3], 10);
+  // DETECT FORMAT: DD/MM/YYYY or D/M/YYYY
+  const dmyMatch = cleanDateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1; 
+    const year = parseInt(dmyMatch[3], 10);
     
-    // Parse time if available
-    let hours = 0, minutes = 0, seconds = 0;
+    // Default to NOON (12:00:00) if no time is specified.
+    // This prevents timezone rollovers where Local Midnight -> Previous Day UTC.
+    // e.g. India (UTC+5:30) Midnight -> Previous Day 18:30 UTC.
+    let hours = 12; 
+    let minutes = 0;
+    let seconds = 0;
+
     if (timeStr) {
        const timeMatch = timeStr.match(/(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?\s*(AM|PM)?/i);
        if (timeMatch) {
@@ -507,16 +520,147 @@ const parseDateRobust = (dateStr: string, timeStr: string = ''): { iso: string, 
        }
     }
 
-    d = new Date(year, month, day, hours, minutes, seconds);
-    if (!isNaN(d.getTime())) {
-        return { iso: d.toISOString(), ts: d.getTime() };
-    }
+    const d = new Date(year, month, day, hours, minutes, seconds);
+    return { iso: d.toISOString(), ts: d.getTime() };
   }
 
-  // Fallback
+  // Fallback to standard constructor
+  // Case 2: Handle standard YYYY-MM-DD (ISO) or MM/DD/YYYY (US)
+  // To avoid local midnight shifting to previous day UTC in positive timezones (East of UK),
+  // we try to force noon if it looks like a date-only string.
+  let fullStr = timeStr ? `${dateStr} ${timeStr}` : dateStr;
+  
+  // Heuristic: If it has slashes (often implied local time) but no time component, append Noon.
+  // We leave dashes (YYYY-MM-DD) alone because new Date("2023-10-01") is officially UTC in JS.
+  if (!timeStr && dateStr.includes('/') && !dateStr.includes(':')) {
+       fullStr = `${dateStr} 12:00:00`;
+  }
+
+  const d = new Date(fullStr);
+  if (!isNaN(d.getTime())) {
+    return { iso: d.toISOString(), ts: d.getTime() };
+  }
+  
+  // Final fallback (just dateStr)
+  const d2 = new Date(dateStr);
+  if (!isNaN(d2.getTime())) {
+    return { iso: d2.toISOString(), ts: d2.getTime() };
+  }
+
   console.warn("Failed to parse date:", fullStr);
   const fallback = new Date();
   return { iso: fallback.toISOString(), ts: fallback.getTime() };
+};
+
+export const importTransactionsFromCSV = (currentState: AppState, csvContent: string): { newState: AppState, count: number, errors: string[] } => {
+    const lines = csvContent.split(/\r\n|\n/);
+    const newTransactions: Transaction[] = [];
+    const updatedFlats = [...currentState.flats];
+    const errors: string[] = [];
+    
+    // Track receipt number for auto-generation
+    let currentReceiptNo = currentState.lastReceiptNo;
+
+    // Basic Header Detection
+    const header = lines[0].toLowerCase();
+    const hasHeader = header.includes('date') && header.includes('flat');
+    const startRow = hasHeader ? 1 : 0;
+
+    for (let i = startRow; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const parts = line.split(',');
+        // Expected: Date, FlatNumber, Amount, ReceiptNo (Optional), OwnerName(Optional)
+        
+        const dateStr = parts[0]?.trim();
+        const flatNo = parts[1]?.trim();
+        const amountStr = parts[2]?.trim();
+        const receiptStr = parts[3]?.trim();
+        const ownerStr = parts[4]?.trim(); // Optional override
+
+        if (!dateStr || !flatNo || !amountStr) {
+             errors.push(`Row ${i + 1}: Missing required fields (Date, FlatNumber, Amount)`);
+             continue;
+        }
+
+        // Validate Flat
+        const flatIndex = updatedFlats.findIndex(f => f.flatNumber.toLowerCase() === flatNo.toLowerCase());
+        if (flatIndex === -1) {
+            errors.push(`Row ${i + 1}: Flat ${flatNo} not found.`);
+            continue;
+        }
+
+        const flat = updatedFlats[flatIndex];
+        
+        // Parse Amount - Remove commas if present (e.g., "2,000")
+        const cleanAmountStr = amountStr.replace(/,/g, '');
+        const amount = parseFloat(cleanAmountStr);
+        if (isNaN(amount)) {
+            errors.push(`Row ${i + 1}: Invalid amount.`);
+            continue;
+        }
+
+        // Parse Date Robustly
+        const { iso: isoDate, ts: timestamp } = parseDateRobust(dateStr);
+
+        // Handle Receipt No
+        let receiptNo = 0;
+        if (receiptStr) {
+            receiptNo = parseInt(receiptStr);
+            if (isNaN(receiptNo)) {
+                 // Fallback to auto-inc if invalid number provided
+                 currentReceiptNo++;
+                 receiptNo = currentReceiptNo;
+            } else {
+                 // Update max counter if manual receipt is higher
+                 if (receiptNo > currentReceiptNo) {
+                     currentReceiptNo = receiptNo;
+                 }
+            }
+        } else {
+            currentReceiptNo++;
+            receiptNo = currentReceiptNo;
+        }
+
+        // Create Transaction
+        const newTx: Transaction = {
+            receiptNo,
+            date: isoDate,
+            timestamp,
+            flatId: flat.id,
+            flatNumber: flat.flatNumber,
+            ownerName: ownerStr || flat.ownerName, // Use CSV name or existing flat name
+            amount: amount,
+            mobile: flat.mobile || ''
+        };
+
+        newTransactions.push(newTx);
+
+        // Update Flat Status
+        updatedFlats[flatIndex] = {
+            ...flat,
+            status: PaymentStatus.PAID
+        };
+    }
+
+    if (newTransactions.length === 0) {
+        return { newState: currentState, count: 0, errors };
+    }
+
+    // Merge transactions and sort by receiptNo desc
+    const allTransactions = [...currentState.transactions, ...newTransactions];
+    allTransactions.sort((a, b) => b.receiptNo - a.receiptNo);
+
+    const newState: AppState = {
+        ...currentState,
+        flats: updatedFlats,
+        transactions: allTransactions,
+        lastReceiptNo: currentReceiptNo
+    };
+
+    saveData(newState);
+    return { newState, count: newTransactions.length, errors };
 };
 
 export const exportDataToExcel = (state: AppState) => {
@@ -658,7 +802,8 @@ export const importDataFromExcel = async (file: File): Promise<AppState> => {
         const newState: AppState = {
           flats,
           transactions,
-          lastReceiptNo
+          lastReceiptNo,
+          aiInsight: undefined
         };
 
         saveData(newState);

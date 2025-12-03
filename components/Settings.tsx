@@ -1,9 +1,9 @@
 
 import React, { useRef, useState } from 'react';
 import { AppState } from '../types';
-import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, saveData, loadData } from '../services/storageService';
-import { downloadSampleCsv } from '../utils/helpers';
-import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Trash2, RefreshCw } from 'lucide-react';
+import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV } from '../services/storageService';
+import { downloadSampleCsv, downloadTransactionSampleCsv } from '../utils/helpers';
+import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Trash2, Receipt } from 'lucide-react';
 import { STORAGE_KEY } from '../constants';
 
 interface SettingsProps {
@@ -14,10 +14,11 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dbInputRef = useRef<HTMLInputElement>(null);
+  const txFileInputRef = useRef<HTMLInputElement>(null);
   
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' });
 
-  // CSV Bulk Update (Existing)
+  // CSV Bulk Update (Flats)
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -34,6 +35,45 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
             message: `Successfully updated details for ${updatedCount} flats!`
           });
           if (fileInputRef.current) fileInputRef.current.value = '';
+        } catch (error) {
+           setStatus({
+            type: 'error',
+            message: 'Failed to process CSV.'
+          });
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // CSV Bulk Import (Transactions)
+  const handleTxCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) {
+        try {
+          const { newState, count, errors } = importTransactionsFromCSV(state, text);
+          refreshState(newState);
+          
+          let msg = `Successfully imported ${count} transactions.`;
+          if (errors.length > 0) {
+            msg += ` ${errors.length} rows failed. Check console.`;
+            console.warn("Import Errors:", errors);
+          }
+          
+          if (count > 0) {
+              setStatus({ type: 'success', message: msg });
+           } else if (errors.length > 0) {
+              setStatus({ type: 'error', message: "Failed to import any transactions. Check file format." });
+           } else {
+              setStatus({ type: 'idle', message: "" });
+           }
+
+          if (txFileInputRef.current) txFileInputRef.current.value = '';
         } catch (error) {
            setStatus({
             type: 'error',
@@ -158,7 +198,49 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
         </div>
       </section>
 
-      {/* SECTION 2: BULK UPDATE (CSV) */}
+      {/* SECTION 2: BULK IMPORT TRANSACTIONS (CSV) */}
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center">
+          <Receipt size={16} className="mr-2" />
+          Import Transactions (CSV)
+        </h3>
+        
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
+          <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+            Bulk upload historical payments. Flats listed in the CSV will be marked as PAID.
+          </p>
+          
+          <div className="space-y-3">
+             <button 
+              onClick={downloadTransactionSampleCsv}
+              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 rounded-xl text-slate-600 font-medium hover:bg-slate-50 transition-colors text-sm"
+            >
+              <Download size={16} />
+              <span>Download CSV Template</span>
+            </button>
+
+            <div className="relative">
+              <input
+                ref={txFileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleTxCsvUpload}
+                className="hidden"
+                id="tx-csv-upload"
+              />
+              <label 
+                htmlFor="tx-csv-upload"
+                className="flex items-center justify-center space-x-2 w-full py-3 bg-blue-600 text-white rounded-xl font-medium cursor-pointer hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+              >
+                <Upload size={18} />
+                <span>Upload Transactions</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3: BULK UPDATE DETAILS (CSV) */}
       <section>
         <h3 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center">
           <FileText size={16} className="mr-2" />

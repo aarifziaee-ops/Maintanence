@@ -3,15 +3,16 @@ import React, { useState } from 'react';
 import { AppState, PaymentStatus } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { formatCurrency } from '../utils/helpers';
-import { Sparkles, TrendingUp, Users, IndianRupee, AlertCircle } from 'lucide-react';
+import { Sparkles, TrendingUp, Users, IndianRupee, AlertCircle, Percent } from 'lucide-react';
 import { generateFinancialInsight } from '../services/geminiService';
+import { updateInsight } from '../services/storageService';
 
 interface DashboardProps {
   state: AppState;
+  refreshState: (newState: AppState) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ state }) => {
-  const [insight, setInsight] = useState<string>('');
+const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
   const [loadingInsight, setLoadingInsight] = useState(false);
 
   const paidCount = state.flats.filter(f => f.status === PaymentStatus.PAID).length;
@@ -24,6 +25,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     .filter(t => t.date.startsWith(todayStr))
     .reduce((acc, curr) => acc + curr.amount, 0);
 
+  const percentPaid = state.flats.length > 0 ? Math.round((paidCount / state.flats.length) * 100) : 0;
+
   const data = [
     { name: 'Paid', value: paidCount },
     { name: 'Unpaid', value: unpaidCount },
@@ -34,9 +37,15 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const handleGenerateInsight = async () => {
     setLoadingInsight(true);
     const text = await generateFinancialInsight(state);
-    setInsight(text);
+    const newState = updateInsight(state, text);
+    refreshState(newState);
     setLoadingInsight(false);
   };
+
+  const insight = state.aiInsight?.text;
+  const lastUpdated = state.aiInsight?.timestamp 
+    ? new Date(state.aiInsight.timestamp).toLocaleString() 
+    : null;
 
   return (
     <div className="p-4 space-y-6">
@@ -72,24 +81,42 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
       </div>
 
-      {/* Counts Grid */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-           <div className="flex items-center space-x-2 text-slate-500 mb-1">
-            <Users size={16} />
-            <span className="text-xs font-semibold uppercase">Paid Flats</span>
+      {/* Counts Grid with Percentage in between */}
+      <div className="grid grid-cols-3 gap-3">
+        
+        {/* Paid */}
+        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+           <div className="flex items-center space-x-1 text-slate-500 mb-1">
+            <Users size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Paid</span>
           </div>
-          <p className="text-2xl font-bold text-slate-900">{paidCount}</p>
-          <p className="text-xs text-slate-400">out of {state.flats.length}</p>
+          <p className="text-xl font-bold text-slate-900 leading-tight">{paidCount}</p>
+          <p className="text-[10px] text-slate-400">/ {state.flats.length}</p>
+        </div>
+
+        {/* Percentage */}
+        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 relative overflow-hidden">
+           <div className="flex items-center space-x-1 text-slate-500 mb-1 relative z-10">
+            <Percent size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Done</span>
+          </div>
+          <p className="text-xl font-bold text-blue-600 leading-tight relative z-10">{percentPaid}%</p>
+          <p className="text-[10px] text-slate-400 relative z-10">complete</p>
+          
+          {/* Progress bar at bottom */}
+          <div className="absolute bottom-0 left-0 w-full h-1 bg-slate-100">
+             <div className="h-full bg-blue-500" style={{ width: `${percentPaid}%` }}></div>
+          </div>
         </div>
         
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-           <div className="flex items-center space-x-2 text-slate-500 mb-1">
-            <AlertCircle size={16} />
-            <span className="text-xs font-semibold uppercase">Pending</span>
+        {/* Pending */}
+        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+           <div className="flex items-center space-x-1 text-slate-500 mb-1">
+            <AlertCircle size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Pending</span>
           </div>
-          <p className="text-2xl font-bold text-slate-900">{unpaidCount}</p>
-           <p className="text-xs text-slate-400">flats remaining</p>
+          <p className="text-xl font-bold text-slate-900 leading-tight">{unpaidCount}</p>
+           <p className="text-[10px] text-slate-400">remaining</p>
         </div>
       </div>
 
@@ -136,9 +163,16 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         </div>
         
         {insight ? (
-          <p className="text-slate-700 text-sm leading-relaxed animate-fade-in">
-            {insight}
-          </p>
+          <div>
+            <p className="text-slate-700 text-sm leading-relaxed animate-fade-in mb-2">
+              {insight}
+            </p>
+            {lastUpdated && (
+              <p className="text-[10px] text-slate-400 text-right">
+                Last updated: {lastUpdated}
+              </p>
+            )}
+          </div>
         ) : (
           <p className="text-slate-400 text-sm italic">
             Tap generate to analyze collection trends with Gemini.

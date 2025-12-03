@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { formatCurrency, formatDate, generateWhatsAppLink } from '../utils/helpers';
+import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString } from '../utils/helpers';
 import { Clock, AlertCircle, Share2, Edit2, Calendar } from 'lucide-react';
 
 interface ReportsProps {
@@ -13,8 +13,8 @@ interface ReportsProps {
 
 const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTransaction }) => {
   
-  // Default to today's date in YYYY-MM-DD format for the input
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  // Default to today's date in YYYY-MM-DD format (Local time)
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
 
   const dailyReport = useMemo(() => {
     // Filter transactions where the ISO date string starts with the selected YYYY-MM-DD
@@ -62,48 +62,51 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
             </p>
            </div>
         ) : (
-          <div className="space-y-3">
-            {dailyReport.map((t) => (
-              <div key={t.receiptNo} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                
-                {/* Updated Layout: Flat and Name on one line */}
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex-1 pr-2">
-                    <div className="text-sm text-slate-800 leading-snug">
-                      <span className="font-bold text-base mr-2">{t.flatNumber}</span>
-                      <span className="text-slate-600">{t.ownerName}</span>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+             {/* Header */}
+             <div className="flex items-center bg-slate-100 p-3 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                <div className="w-12 shrink-0">Rcpt</div>
+                <div className="w-16 shrink-0">Flat</div>
+                <div className="flex-1 min-w-0 px-2">Owner</div>
+                <div className="w-20 shrink-0 text-right">Amount</div>
+                <div className="w-14 shrink-0 text-center">Action</div>
+             </div>
+             
+             {/* Body */}
+             <div className="divide-y divide-slate-100">
+                {dailyReport.map((t) => (
+                  <div key={t.receiptNo} className="flex items-center p-3 text-xs hover:bg-slate-50 transition-colors">
+                    <div className="w-12 shrink-0 font-mono text-slate-500">#{t.receiptNo}</div>
+                    <div className="w-16 shrink-0 font-bold text-slate-800">{t.flatNumber}</div>
+                    <div className="flex-1 min-w-0 px-2 truncate text-slate-600" title={t.ownerName}>
+                        {t.ownerName}
                     </div>
-                    <div className="mt-1">
-                      <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-medium">#{t.receiptNo}</span>
+                    <div className="w-20 shrink-0 text-right font-medium text-slate-900">
+                        {formatCurrency(t.amount)}
+                    </div>
+                    <div className="w-14 shrink-0 flex justify-center space-x-1">
+                        <a 
+                             href={generateWhatsAppLink(t.mobile, t.receiptNo, t.ownerName, t.flatNumber, t.amount, formatDate(t.date))}
+                             target="_blank"
+                             rel="noreferrer"
+                             className="text-green-600 p-1.5 hover:bg-green-100 rounded transition-colors"
+                             title="Share WhatsApp"
+                        >
+                            <Share2 size={14} />
+                        </a>
+                        {onEditTransaction && (
+                             <button
+                               onClick={() => onEditTransaction(t)}
+                               className="text-blue-600 p-1.5 hover:bg-blue-100 rounded transition-colors"
+                               title="Edit"
+                             >
+                                <Edit2 size={14} />
+                             </button>
+                        )}
                     </div>
                   </div>
-                  <div className="font-bold text-slate-700 text-lg whitespace-nowrap">{formatCurrency(t.amount)}</div>
-                </div>
-                
-                <div className="flex items-center space-x-2 pt-3 border-t border-slate-50">
-                   <a 
-                     href={generateWhatsAppLink(t.mobile, t.receiptNo, t.ownerName, t.flatNumber, t.amount, formatDate(t.date))}
-                     target="_blank"
-                     rel="noreferrer"
-                     className="flex-1 flex items-center justify-center space-x-1 py-2 rounded-lg bg-green-50 text-green-700 font-medium text-xs hover:bg-green-100"
-                   >
-                     <Share2 size={14} />
-                     <span>Share</span>
-                   </a>
-                   
-                   {onEditTransaction && (
-                     <button
-                       type="button"
-                       onClick={() => onEditTransaction(t)}
-                       className="flex items-center justify-center space-x-1 px-4 py-2 rounded-lg bg-blue-50 text-blue-600 font-medium text-xs hover:bg-blue-100"
-                     >
-                        <Edit2 size={14} />
-                        <span>Edit</span>
-                     </button>
-                   )}
-                </div>
-              </div>
-            ))}
+                ))}
+             </div>
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -6,6 +7,7 @@ import Reports from './components/Reports';
 import Settings from './components/Settings';
 import { AppState, ViewState, Transaction } from './types';
 import { loadData } from './services/storageService';
+import { STORAGE_KEY } from './constants';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('DASHBOARD');
@@ -16,6 +18,19 @@ const App: React.FC = () => {
     // Load data from local storage on mount
     const data = loadData();
     setState(data);
+
+    // Listen for storage events (cross-tab synchronization)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY) {
+        const newData = loadData();
+        setState(newData);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   const handleStateUpdate = (newState: AppState) => {
@@ -35,7 +50,7 @@ const App: React.FC = () => {
 
   return (
     <Layout currentView={view} setView={setView}>
-      {view === 'DASHBOARD' && <Dashboard state={state} />}
+      {view === 'DASHBOARD' && <Dashboard state={state} refreshState={handleStateUpdate} />}
       
       {view === 'PAYMENT' && (
         <PaymentForm 

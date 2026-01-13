@@ -1,3 +1,4 @@
+
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -6,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react()],
+    base: './', // CRITICAL: Ensures assets load using relative paths for APK/Cordova/Capacitor
     define: {
       // Polyfill process.env for the @google/genai SDK compatibility
       'process.env': env

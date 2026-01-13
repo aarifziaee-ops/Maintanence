@@ -1,10 +1,10 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { AppState } from '../types';
-import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV } from '../services/storageService';
-import { downloadSampleCsv, downloadTransactionSampleCsv } from '../utils/helpers';
-import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Trash2, Receipt } from 'lucide-react';
-import { STORAGE_KEY } from '../constants';
+import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV, createSystemSnapshot, restoreSystemSnapshot, getSnapshotTimestamp, syncFromCloud, importFinancialRecordsFromCSV, clearFinancialRecords, uploadCurrentDataToCloud, saveCloudConfig, getCloudConfig, updateTheme } from '../services/storageService';
+import { downloadSampleCsv, downloadTransactionSampleCsv, downloadFinanceSampleCsv } from '../utils/helpers';
+import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Receipt, RefreshCw, RotateCcw, History, Smartphone, Cloud, Wallet, Trash2, Lock, ArrowUpCircle, X, ChevronDown, ChevronUp, Moon, Sun } from 'lucide-react';
+import { initFirebase } from '../services/firebaseService';
 
 interface SettingsProps {
   state: AppState;
@@ -15,8 +15,132 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dbInputRef = useRef<HTMLInputElement>(null);
   const txFileInputRef = useRef<HTMLInputElement>(null);
+  const financeFileInputRef = useRef<HTMLInputElement>(null);
   
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' });
+  const [snapshotTime, setSnapshotTime] = useState<string | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  
+  const [cloudConnected, setCloudConnected] = useState(false);
+  const [showConfigForm, setShowConfigForm] = useState(false);
+  
+  // Cloud Config State
+  const [apiKey, setApiKey] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [authDomain, setAuthDomain] = useState('');
+
+  useEffect(() => {
+    // Load snapshot time
+    const ts = getSnapshotTimestamp();
+    if (ts) {
+        setSnapshotTime(new Date(ts).toLocaleString());
+    }
+
+    // Check saved config
+    const savedConfig = getCloudConfig();
+    if (savedConfig) {
+        setApiKey(savedConfig.apiKey);
+        setProjectId(savedConfig.projectId);
+        setAuthDomain(savedConfig.authDomain);
+        if (initFirebase(savedConfig)) {
+            setCloudConnected(true);
+        } else {
+            // Config exists but failed to init
+            setCloudConnected(false);
+            setShowConfigForm(true);
+        }
+    } else {
+        setShowConfigForm(true);
+    }
+
+    // Listen for PWA install prompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    });
+  }, []);
+
+  const handleInstallClick = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult: any) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the install prompt');
+        }
+        setDeferredPrompt(null);
+      });
+    }
+  };
+
+  const handleConnectCloud = () => {
+    if (!apiKey || !projectId) {
+        setStatus({ type: 'error', message: 'API Key and Project ID are required.' });
+        return;
+    }
+
+    const config = {
+        apiKey,
+        projectId,
+        authDomain: authDomain || `${projectId}.firebaseapp.com`
+    };
+
+    if (initFirebase(config)) {
+        saveCloudConfig(config);
+        setCloudConnected(true);
+        setShowConfigForm(false);
+        setStatus({ type: 'success', message: 'Connected to Firebase successfully!' });
+    } else {
+        setStatus({ type: 'error', message: 'Connection failed. Check your credentials.' });
+    }
+  };
+
+  const handleDisconnectCloud = () => {
+      localStorage.removeItem('firebase_config');
+      setCloudConnected(false);
+      setShowConfigForm(true);
+      setStatus({ type: 'idle', message: 'Disconnected. Please reload if needed.' });
+      // Reloading is often safest to clear Firebase instance state
+      if(window.confirm("Disconnecting requires a reload. Reload now?")) {
+          window.location.reload();
+      }
+  };
+
+  const handleCloudSync = async () => {
+    setStatus({ type: 'idle', message: 'Connecting to Cloud...' });
+    try {
+      const cloudData = await syncFromCloud();
+      if (cloudData) {
+        if(window.confirm("Found data on Cloud. This will OVERWRITE your local data. Proceed?")) {
+            refreshState(cloudData);
+            setStatus({ type: 'success', message: 'Successfully restored data from Cloud!' });
+        } else {
+            setStatus({ type: 'idle', message: 'Sync cancelled.' });
+        }
+      } else {
+        // If cloud is empty, suggest uploading
+        if (window.confirm("Cloud database is empty. Do you want to UPLOAD your current local data to seed the cloud?")) {
+            handleCloudUpload();
+        } else {
+            setStatus({ type: 'error', message: 'No data found on Cloud.' });
+        }
+      }
+    } catch (e) {
+       setStatus({ type: 'error', message: 'Failed to connect to Cloud.' });
+    }
+  };
+
+  const handleCloudUpload = async () => {
+    try {
+        const success = await uploadCurrentDataToCloud(state);
+        if (success) {
+            setStatus({ type: 'success', message: 'Data uploaded to Cloud successfully! Auto-sync is now active.' });
+        } else {
+            setStatus({ type: 'error', message: 'Failed to upload. Check internet connection.' });
+        }
+    } catch (e) {
+        setStatus({ type: 'error', message: 'Error uploading to cloud.' });
+    }
+  };
 
   // CSV Bulk Update (Flats)
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,6 +209,43 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
     reader.readAsText(file);
   };
 
+  // CSV Bulk Import (Financial Records)
+  const handleFinanceCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (text) {
+        try {
+          const { newState, count, errors } = importFinancialRecordsFromCSV(state, text);
+          refreshState(newState);
+          
+          let msg = `Successfully imported ${count} financial records.`;
+          if (errors.length > 0) {
+             console.warn("Import Errors:", errors);
+             msg += ` (Some rows failed)`;
+          }
+          
+          if (count > 0) {
+              setStatus({ type: 'success', message: msg });
+          } else {
+              setStatus({ type: 'error', message: "Failed to import records. Check format." });
+          }
+
+          if (financeFileInputRef.current) financeFileInputRef.current.value = '';
+        } catch (error) {
+           setStatus({
+            type: 'error',
+            message: 'Failed to process CSV.'
+          });
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Excel Database Export
   const handleExportDB = () => {
     try {
@@ -118,55 +279,276 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
     if (dbInputRef.current) dbInputRef.current.value = '';
   };
 
-  const handleFactoryReset = () => {
-    const confirmation = window.prompt("Type 'DELETE' to confirm wiping all data. This cannot be undone.", "");
-    if (confirmation === 'DELETE') {
-      localStorage.removeItem(STORAGE_KEY);
-      window.location.reload();
+  const handleClearFinance = () => {
+     if (window.confirm("Are you sure you want to DELETE ALL FINANCE RECORDS?\n\nThis will clear the Accounts data (Income/Expense).")) {
+        const newState = clearFinancialRecords(state);
+        refreshState(newState);
+        setStatus({ type: 'success', message: 'All finance records cleared.' });
     }
   };
 
+  const handleCreateSnapshot = () => {
+      createSystemSnapshot(state);
+      const ts = getSnapshotTimestamp();
+      if (ts) setSnapshotTime(new Date(ts).toLocaleString());
+      setStatus({ type: 'success', message: 'System Restore Point created successfully.' });
+  };
+
+  const handleRestoreSnapshot = () => {
+      const ts = getSnapshotTimestamp();
+      if (!ts) {
+          alert("No restore point found.");
+          return;
+      }
+      
+      const timeStr = new Date(ts).toLocaleString();
+      if (window.confirm(`Are you sure you want to restore the system to the state from: ${timeStr}?\n\nCurrent data will be overwritten.`)) {
+          const newState = restoreSystemSnapshot();
+          if (newState) {
+              refreshState(newState);
+              setStatus({ type: 'success', message: `System restored to ${timeStr}.` });
+          } else {
+              setStatus({ type: 'error', message: 'Failed to load restore point.' });
+          }
+      }
+  };
+
+  const toggleTheme = (theme: 'LIGHT' | 'DARK') => {
+    const newState = updateTheme(state, theme);
+    refreshState(newState);
+  };
+
   return (
-    <div className="p-4 space-y-8 pb-20">
-      <h2 className="text-xl font-bold text-slate-800">Settings & Data</h2>
+    <div className="p-4 space-y-8 pb-20 bg-slate-50 dark:bg-slate-950 min-h-screen">
+      <h2 className="text-xl font-bold text-slate-800 dark:text-white">Settings & Data</h2>
 
       {/* STATUS MESSAGE */}
       {status.type !== 'idle' && (
-        <div className={`p-4 rounded-lg flex items-start animate-fade-in ${status.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+        <div className={`p-4 rounded-lg flex items-start animate-fade-in ${status.type === 'success' ? 'bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-300'}`}>
           {status.type === 'success' ? <CheckCircle size={20} className="mt-0.5 mr-2 shrink-0" /> : <AlertTriangle size={20} className="mt-0.5 mr-2 shrink-0" />}
           <p className="text-sm">{status.message}</p>
         </div>
       )}
 
+      {/* THEME SELECTOR */}
+      <section>
+          <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+            Appearance
+          </h3>
+          <div className="bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex">
+              <button 
+                onClick={() => toggleTheme('LIGHT')}
+                className={`flex-1 flex items-center justify-center space-x-2 py-3 rounded-lg text-sm font-bold transition-all ${state.theme === 'LIGHT' ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              >
+                  <Sun size={18} />
+                  <span>Light</span>
+              </button>
+              <button 
+                onClick={() => toggleTheme('DARK')}
+                className={`flex-1 flex items-center justify-center space-x-2 py-3 rounded-lg text-sm font-bold transition-all ${state.theme === 'DARK' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              >
+                  <Moon size={18} />
+                  <span>Dark Black</span>
+              </button>
+          </div>
+      </section>
+
+      {/* APP INSTALLATION */}
+      {deferredPrompt && (
+        <section className="bg-blue-600 text-white rounded-xl p-5 shadow-lg shadow-blue-200 dark:shadow-none">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-lg">Install App</h3>
+              <p className="text-blue-100 text-sm">Add to home screen for fullscreen experience.</p>
+            </div>
+            <button 
+              onClick={handleInstallClick}
+              className="bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-sm shadow-md"
+            >
+              <div className="flex items-center space-x-2">
+                <Smartphone size={16} />
+                <span>Install</span>
+              </div>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* SECTION: CLOUD DATABASE */}
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+          <Cloud size={16} className="mr-2" />
+          Cloud Database (Firebase)
+        </h3>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+           
+           {/* Connection Header */}
+           <div className="mb-4">
+             <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Sync & Backup.
+                </p>
+                {cloudConnected ? (
+                  <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-bold px-2 py-1 rounded flex items-center">
+                     <Lock size={12} className="mr-1" />
+                     Connected
+                  </span>
+                ) : (
+                  <span className="text-xs bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 font-bold px-2 py-1 rounded">
+                     Not Connected
+                  </span>
+                )}
+             </div>
+           </div>
+
+           {/* Manual Configuration Form */}
+           {(!cloudConnected || showConfigForm) && (
+              <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 animate-in fade-in">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-3">Configuration</h4>
+                  <div className="space-y-3">
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">API Key</label>
+                          <input 
+                            type="text" 
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="AIzaSy..."
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Project ID</label>
+                          <input 
+                            type="text" 
+                            value={projectId}
+                            onChange={(e) => setProjectId(e.target.value)}
+                            placeholder="my-project-id"
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Auth Domain (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={authDomain}
+                            onChange={(e) => setAuthDomain(e.target.value)}
+                            placeholder="my-project.firebaseapp.com"
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <button 
+                        onClick={handleConnectCloud}
+                        className="w-full bg-slate-800 dark:bg-black text-white font-bold text-sm py-2 rounded hover:bg-slate-900 transition-colors"
+                      >
+                        Connect
+                      </button>
+                  </div>
+              </div>
+           )}
+
+           {/* Actions if Connected */}
+           {cloudConnected && !showConfigForm && (
+               <div className="space-y-3">
+                   <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={handleCloudSync}
+                            className="flex items-center justify-center space-x-2 bg-blue-600 text-white py-3 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-none transition-colors"
+                        >
+                            <RefreshCw size={18} />
+                            <span>Sync / Download</span>
+                        </button>
+                        
+                        <button 
+                            onClick={() => {
+                            if(window.confirm("Force Backup: This will overwrite cloud data with current local data. Continue?")) {
+                                handleCloudUpload();
+                            }
+                            }}
+                            className="flex items-center justify-center space-x-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-3 rounded-lg font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            <ArrowUpCircle size={18} />
+                            <span>Force Backup</span>
+                        </button>
+                   </div>
+                   
+                   <button 
+                        onClick={handleDisconnectCloud}
+                        className="w-full text-xs text-red-500 hover:text-red-700 underline text-center"
+                   >
+                       Disconnect / Edit Configuration
+                   </button>
+               </div>
+           )}
+           
+        </div>
+      </section>
+
+      {/* SECTION: SYSTEM RESTORE POINT */}
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+          <History size={16} className="mr-2" />
+          System Restore Point
+        </h3>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div className="flex justify-between items-center mb-4">
+                <div>
+                   <p className="text-sm text-slate-600 dark:text-slate-300">Save current state safely.</p>
+                   {snapshotTime ? (
+                       <p className="text-xs text-green-600 dark:text-green-400 font-medium mt-1">Last Saved: {snapshotTime}</p>
+                   ) : (
+                       <p className="text-xs text-slate-400 mt-1 italic">No restore point saved.</p>
+                   )}
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                 <button 
+                    onClick={handleCreateSnapshot}
+                    className="flex items-center justify-center space-x-2 bg-slate-800 dark:bg-black text-white py-3 rounded-lg font-bold text-sm hover:bg-slate-900"
+                 >
+                    <Save size={16} />
+                    <span>Create Point</span>
+                 </button>
+                 <button 
+                    onClick={handleRestoreSnapshot}
+                    disabled={!snapshotTime}
+                    className="flex items-center justify-center space-x-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 py-3 rounded-lg font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                    <RotateCcw size={16} />
+                    <span>Restore Point</span>
+                 </button>
+            </div>
+        </div>
+      </section>
+
       {/* SECTION 1: DATABASE MANAGEMENT (EXCEL) */}
       <section>
-        <h3 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center">
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
           <Database size={16} className="mr-2" />
           Database Management (Excel)
         </h3>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-          <div className="p-5 border-b border-slate-100">
-            <p className="text-sm text-slate-600">
-              Use this to backup your entire system or transfer data to another device.
-              The Excel file serves as your master database.
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mb-6">
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Use this to backup your entire system. <br/>
+              <span className="text-xs text-slate-400 italic">Note: You can only restore "yesterday's" data if you have an exported file from yesterday.</span>
             </p>
           </div>
           
-          <div className="grid grid-cols-2 divide-x divide-slate-100">
+          <div className="grid grid-cols-2 divide-x divide-slate-100 dark:divide-slate-800">
             {/* Export Button */}
             <button 
               onClick={handleExportDB}
-              className="p-4 flex flex-col items-center justify-center hover:bg-slate-50 transition-colors active:bg-slate-100"
+              className="p-4 flex flex-col items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors active:bg-slate-100 dark:active:bg-slate-700"
             >
-              <div className="bg-green-100 text-green-600 p-3 rounded-full mb-2">
+              <div className="bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-300 p-3 rounded-full mb-2">
                 <Save size={24} />
               </div>
-              <span className="font-bold text-slate-700">Backup DB</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">Backup DB</span>
               <span className="text-xs text-slate-400 mt-1">Export to .xlsx</span>
             </button>
 
             {/* Import Button */}
-            <div className="relative p-4 flex flex-col items-center justify-center hover:bg-slate-50 transition-colors active:bg-slate-100 cursor-pointer">
+            <div className="relative p-4 flex flex-col items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors active:bg-slate-100 dark:active:bg-slate-700 cursor-pointer">
               <input
                 ref={dbInputRef}
                 type="file"
@@ -174,38 +556,77 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
                 onChange={handleImportDB}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
-              <div className="bg-blue-100 text-blue-600 p-3 rounded-full mb-2">
+              <div className="bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 p-3 rounded-full mb-2">
                 <Upload size={24} />
               </div>
-              <span className="font-bold text-slate-700">Restore DB</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">Restore DB</span>
               <span className="text-xs text-slate-400 mt-1">Import from .xlsx</span>
             </div>
           </div>
         </div>
+      </section>
 
-        {/* Factory Reset */}
-         <div className="bg-red-50 rounded-xl border border-red-100 p-4 flex items-center justify-between">
-          <div>
-            <h4 className="text-red-900 font-bold text-sm">Factory Reset</h4>
-            <p className="text-red-700 text-xs mt-1">Delete all data to restore from Excel</p>
+      {/* SECTION: ACCOUNTS IMPORT (NEW) */}
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+          <Wallet size={16} className="mr-2" />
+          Import Accounts Data (CSV)
+        </h3>
+        
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6">
+          <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+            Bulk upload income and expenses for the Finance module.
+            <br/>
+            <span className="text-xs italic">Supports columns: Date, Category, Description, Income, Expenses</span>
+          </p>
+          
+          <div className="space-y-3">
+             <div className="grid grid-cols-2 gap-2">
+                 <button 
+                  onClick={downloadFinanceSampleCsv}
+                  className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-xs"
+                >
+                  <Download size={14} />
+                  <span>Template</span>
+                </button>
+                 <button 
+                  onClick={handleClearFinance}
+                  className="flex items-center justify-center space-x-2 w-full py-3 border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400 font-medium hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors text-xs"
+                >
+                  <Trash2 size={14} />
+                  <span>Clear Data</span>
+                </button>
+             </div>
+
+            <div className="relative">
+              <input
+                ref={financeFileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleFinanceCsvUpload}
+                className="hidden"
+                id="finance-csv-upload"
+              />
+              <label 
+                htmlFor="finance-csv-upload"
+                className="flex items-center justify-center space-x-2 w-full py-3 bg-indigo-600 text-white rounded-xl font-medium cursor-pointer hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 dark:shadow-none"
+              >
+                <Upload size={18} />
+                <span>Upload Accounts CSV</span>
+              </label>
+            </div>
           </div>
-          <button 
-            onClick={handleFactoryReset}
-            className="bg-white text-red-600 border border-red-200 px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-red-50"
-          >
-            Clear Data
-          </button>
         </div>
       </section>
 
-      {/* SECTION 2: BULK IMPORT TRANSACTIONS (CSV) */}
+      {/* SECTION 3: BULK IMPORT TRANSACTIONS */}
       <section>
-        <h3 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center">
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
           <Receipt size={16} className="mr-2" />
           Import Transactions (CSV)
         </h3>
         
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6">
           <p className="text-sm text-slate-500 mb-4 leading-relaxed">
             Bulk upload historical payments. Flats listed in the CSV will be marked as PAID.
           </p>
@@ -213,7 +634,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
           <div className="space-y-3">
              <button 
               onClick={downloadTransactionSampleCsv}
-              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 rounded-xl text-slate-600 font-medium hover:bg-slate-50 transition-colors text-sm"
+              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm"
             >
               <Download size={16} />
               <span>Download CSV Template</span>
@@ -230,7 +651,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
               />
               <label 
                 htmlFor="tx-csv-upload"
-                className="flex items-center justify-center space-x-2 w-full py-3 bg-blue-600 text-white rounded-xl font-medium cursor-pointer hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+                className="flex items-center justify-center space-x-2 w-full py-3 bg-blue-600 text-white rounded-xl font-medium cursor-pointer hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 dark:shadow-none"
               >
                 <Upload size={18} />
                 <span>Upload Transactions</span>
@@ -240,14 +661,14 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
         </div>
       </section>
 
-      {/* SECTION 3: BULK UPDATE DETAILS (CSV) */}
+      {/* SECTION 4: BULK UPDATE DETAILS */}
       <section>
-        <h3 className="text-sm font-bold text-slate-500 uppercase mb-3 flex items-center">
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
           <FileText size={16} className="mr-2" />
           Bulk Update Details (CSV)
         </h3>
         
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6">
           <p className="text-sm text-slate-500 mb-4 leading-relaxed">
             Update owner names and mobile numbers only. Does not affect payment status.
           </p>
@@ -255,7 +676,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
           <div className="space-y-3">
              <button 
               onClick={downloadSampleCsv}
-              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 rounded-xl text-slate-600 font-medium hover:bg-slate-50 transition-colors text-sm"
+              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm"
             >
               <Download size={16} />
               <span>Download CSV Template</span>
@@ -272,7 +693,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
               />
               <label 
                 htmlFor="csv-upload"
-                className="flex items-center justify-center space-x-2 w-full py-3 bg-slate-800 text-white rounded-xl font-medium cursor-pointer hover:bg-slate-900 transition-colors shadow-lg shadow-slate-200"
+                className="flex items-center justify-center space-x-2 w-full py-3 bg-slate-800 dark:bg-black text-white rounded-xl font-medium cursor-pointer hover:bg-slate-900 transition-colors shadow-lg shadow-slate-200 dark:shadow-none"
               >
                 <Upload size={18} />
                 <span>Upload CSV Update</span>
@@ -281,7 +702,6 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
           </div>
         </div>
       </section>
-
     </div>
   );
 };

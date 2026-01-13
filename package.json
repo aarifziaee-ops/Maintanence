@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node -e \"import('fs').then(fs => { try { if(fs.existsSync('sw.js')) fs.copyFileSync('sw.js', 'dist/sw.js'); if(fs.existsSync('manifest.json')) fs.copyFileSync('manifest.json', 'dist/manifest.json'); } catch(e) { console.error('Copy failed', e); } })\"",
     "preview": "vite preview"
   },
   "dependencies": {

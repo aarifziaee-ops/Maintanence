@@ -1,5 +1,5 @@
 
-import { BUILDING_NAME } from '../constants';
+import { BUILDING_NAME, MAINTENANCE_AMOUNT } from '../constants';
 
 export const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-IN', {
@@ -12,7 +12,6 @@ export const formatCurrency = (amount: number): string => {
 export const formatDate = (dateString: string): string => {
   if (!dateString) return '';
   const date = new Date(dateString);
-  // Safety Check: isNaN(date.getTime()) checks for Invalid Date
   if (isNaN(date.getTime())) return 'Invalid Date';
   
   try {
@@ -26,8 +25,22 @@ export const formatDate = (dateString: string): string => {
   }
 };
 
+export const formatMonthYear = (dateString: string): string => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
+  
+  try {
+    return new Intl.DateTimeFormat('en-IN', {
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  } catch (error) {
+    return '';
+  }
+};
+
 export const getTodayDateString = (): string => {
-  // Returns YYYY-MM-DD in Local Time (Not UTC)
   const d = new Date();
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -35,7 +48,6 @@ export const getTodayDateString = (): string => {
   return `${year}-${month}-${day}`;
 };
 
-// Simple Number to Words for typical amounts (up to 99,999)
 export const amountToWords = (num: number): string => {
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
   const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
@@ -55,6 +67,16 @@ export const amountToWords = (num: number): string => {
   return str.trim() + ' Only';
 };
 
+const getCleanLocalMobile = (mobile: string): string => {
+  if (!mobile) return '';
+  let clean = mobile.replace(/\D/g, '');
+  if (clean.length === 10) return '91' + clean;
+  if (clean.length === 11 && clean.startsWith('0')) return '91' + clean.substring(1);
+  if (clean.length === 12 && clean.startsWith('91')) return clean;
+  if (clean.length > 10) return '91' + clean.slice(-10);
+  return clean;
+};
+
 export const generateWhatsAppLink = (
   mobile: string, 
   receiptNo: number, 
@@ -63,46 +85,90 @@ export const generateWhatsAppLink = (
   amount: number, 
   date: string
 ): string => {
-  if (!mobile) return '#';
-  
-  // Remove non-digit chars from mobile
-  const cleanMobile = mobile.replace(/\D/g, '');
-  const finalMobile = cleanMobile.startsWith('91') ? cleanMobile : `91${cleanMobile}`;
-
+  const cleanMobile = getCleanLocalMobile(mobile);
+  if (!cleanMobile) return '#';
   const message = `*PAYMENT RECEIPT*\n${BUILDING_NAME}\n\nReceipt No: ${receiptNo}\nDate: ${date}\n\nReceived with thanks from:\nName: *${name}*\nFlat No: *${flat}*\n\nAmount: *Rs. ${amount}*\n(${amountToWords(amount)})\n\nStatus: *PAID*\n\nThank you for your timely payment.`;
-  
-  return `https://api.whatsapp.com/send?phone=${finalMobile}&text=${encodeURIComponent(message)}`;
+  return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
 
+export const generateReminderLink = (mobile: string, name: string, flat: string): string => {
+  const cleanMobile = getCleanLocalMobile(mobile);
+  if (!cleanMobile) return '#';
+  const message = `Dear ${name || 'Member'},\n\nFlat: *${flat}*\n\nYour maintenance payment for *${BUILDING_NAME}* is pending.\nAmount: *Rs. ${MAINTENANCE_AMOUNT}*\n\nPlease pay at your earliest convenience.\n\nThank you.`;
+  return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
+};
+
+export const downloadPDF = (elementId: string, filename: string) => {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+  
+  // Use html2pdf library if available (it is linked in index.html)
+  if (typeof (window as any).html2pdf !== 'undefined') {
+    const opt = {
+      margin: [0.5, 0.5],
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { 
+        scale: 2, 
+        useCORS: true, 
+        letterRendering: true,
+        logging: false 
+      },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+    };
+    (window as any).html2pdf().from(element).set(opt).save();
+  } else {
+    // Fallback to print if library is not ready
+    const originalTitle = document.title;
+    document.title = filename.replace(/\.pdf$/i, '');
+    window.print();
+    document.title = originalTitle;
+  }
+};
+
+/**
+ * Downloads a sample CSV for bulk updating flat owner details.
+ */
 export const downloadSampleCsv = () => {
-  const headers = "FlatNumber,OwnerName,Mobile";
-  const rows = [
-    "B-0801,Amit Kumar,9876543210",
-    "B-0802,Sneha Gupta,9988776655",
-    "B-0803,Rajesh Verma,9123456780"
-  ];
-  const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
-  const encodedUri = encodeURI(csvContent);
+  const csvContent = "Flat Number,Owner Name,Mobile\nB-0801,Mangesh Chindarkar,9769915542\nB-0802,Dattaram Babu Birambole,8102520482";
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", "flat_details_sample.csv");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", "flat_update_sample.csv");
+  link.style.visibility = 'hidden';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 };
 
+/**
+ * Downloads a sample CSV for bulk importing historical transactions.
+ */
 export const downloadTransactionSampleCsv = () => {
-  const headers = "Date,FlatNumber,Amount,ReceiptNo,OwnerName";
-  const rows = [
-    "2023-10-01,B-0801,2000,101,Amit Kumar",
-    "2023-10-02,B-0802,2000,,Sneha Gupta", // Empty receipt no = auto generate
-    "2023-10-05,B-1105,2000,105," // Empty owner = use existing
-  ];
-  const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
-  const encodedUri = encodeURI(csvContent);
+  const csvContent = "Date,Flat Number,Amount,Receipt No,Owner Name\n2023-10-01,B-0801,2000,101,Mangesh Chindarkar";
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
   link.setAttribute("download", "transaction_import_sample.csv");
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+/**
+ * Downloads a sample CSV for bulk importing financial records (income/expense).
+ */
+export const downloadFinanceSampleCsv = () => {
+  const csvContent = "Date,Type,Amount,Category,Description,Mode\n2023-10-05,EXPENSE,500,Utilities,Water Bill,BANK\n2023-10-06,INCOME,1500,Other,Late Fees,CASH";
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", "finance_import_sample.csv");
+  link.style.visibility = 'hidden';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

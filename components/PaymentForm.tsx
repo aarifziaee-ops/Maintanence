@@ -1,9 +1,9 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { processPayment, deleteTransaction, updateTransaction } from '../services/storageService';
+import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth } from '../services/storageService';
 import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString } from '../utils/helpers';
-import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, XCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
 interface PaymentFormProps {
@@ -26,7 +26,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   const [mobile, setMobile] = useState('');
   const [amount, setAmount] = useState<number>(MAINTENANCE_AMOUNT);
   const [paymentDate, setPaymentDate] = useState<string>(getTodayDateString());
+  const [paymentMode, setPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
   
+  // Preview Receipt No
+  const [previewReceiptNo, setPreviewReceiptNo] = useState<number>(1);
+
   // Edit Specific
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isChangingFlat, setIsChangingFlat] = useState(false);
@@ -39,7 +43,17 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     name: string;
     flat: string;
     mobile: string;
+    paymentMode: 'CASH' | 'BANK';
+    isDuplicate?: boolean;
   } | null>(null);
+
+  // Update preview receipt number whenever paymentDate changes
+  useEffect(() => {
+      if (!editingTx) {
+          const nextNo = getNextReceiptNoForMonth(state, paymentDate);
+          setPreviewReceiptNo(nextNo);
+      }
+  }, [paymentDate, state, editingTx]);
 
   // Handle incoming edit request from props
   useEffect(() => {
@@ -52,10 +66,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   const filteredFlats = useMemo(() => {
     return state.flats.filter(flat => 
       (flat.flatNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       flat.ownerName.toLowerCase().includes(searchTerm.toLowerCase())) &&
-      (flat.status === PaymentStatus.UNPAID || (editingTx && flat.id === editingTx.flatId))
+       flat.ownerName.toLowerCase().includes(searchTerm.toLowerCase()))
     );
-  }, [state.flats, searchTerm, editingTx]);
+  }, [state.flats, searchTerm]);
 
   const filteredHistory = useMemo(() => {
     return state.transactions.filter(tx => 
@@ -64,6 +77,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
       tx.receiptNo.toString().includes(searchTerm)
     );
   }, [state.transactions, searchTerm]);
+
+  // Check if selected flat has already paid for the selected month
+  const isPaidForMonth = useMemo(() => {
+      if (!selectedFlatId || editingTx) return false;
+      const monthPrefix = paymentDate.substring(0, 7);
+      return state.transactions.some(t => t.flatId === selectedFlatId && t.date.startsWith(monthPrefix));
+  }, [selectedFlatId, paymentDate, state.transactions, editingTx]);
 
   const handleSelectFlat = (flatId: string) => {
     const flat = state.flats.find(f => f.id === flatId);
@@ -91,6 +111,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   const handlePayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFlatId) return;
+    
+    if (isPaidForMonth) {
+        if(!window.confirm("This flat has already paid for this month. Do you want to generate another receipt?")) {
+            return;
+        }
+    }
 
     const cleanMobile = sanitizeMobile(mobile);
 
@@ -101,7 +127,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         ownerName,
         cleanMobile,
         amount,
-        paymentDate
+        paymentDate,
+        paymentMode
       );
       
       refreshState(newState);
@@ -111,12 +138,28 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         amount: transaction.amount,
         name: transaction.ownerName,
         flat: transaction.flatNumber,
-        mobile: transaction.mobile
+        mobile: transaction.mobile,
+        paymentMode: transaction.paymentMode || 'CASH',
+        isDuplicate: false
       });
       setStep(3);
     } catch (error) {
       alert("Error processing payment");
     }
+  };
+
+  const viewReceipt = (tx: Transaction) => {
+    setGeneratedReceipt({
+      receiptNo: tx.receiptNo,
+      date: formatDate(tx.date),
+      amount: tx.amount,
+      name: tx.ownerName,
+      flat: tx.flatNumber,
+      mobile: tx.mobile,
+      paymentMode: tx.paymentMode || 'CASH',
+      isDuplicate: true
+    });
+    setStep(3);
   };
 
   const handleUpdateTransaction = (e: React.FormEvent) => {
@@ -133,22 +176,33 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         amount,
         date: paymentDate,
         flatId: selectedFlatId,
-        flatNumber: flat?.flatNumber || editingTx.flatNumber
+        flatNumber: flat?.flatNumber || editingTx.flatNumber,
+        paymentMode
       });
       refreshState(newState);
+      
+      setGeneratedReceipt({
+        receiptNo: editingTx.receiptNo,
+        date: formatDate(paymentDate),
+        amount: amount,
+        name: ownerName,
+        flat: flat?.flatNumber || editingTx.flatNumber,
+        mobile: cleanMobile,
+        paymentMode,
+        isDuplicate: true
+      });
+      setStep(3);
       setEditingTx(null);
-      resetForm();
-      alert(`Receipt #${editingTx.receiptNo} updated successfully.`);
     } catch (error) {
       alert("Failed to update transaction");
     }
   };
 
-  const handleDelete = (receiptNo: number) => {
-    if (window.confirm(`Are you sure you want to delete Receipt #${receiptNo}?\nThis will mark the flat as UNPAID.`)) {
-      const newState = deleteTransaction(state, receiptNo);
+  const handleDelete = (tx: Transaction) => {
+    if (window.confirm(`Are you sure you want to delete Receipt #${tx.receiptNo} from ${tx.date}?\nThis will mark the flat as UNPAID.`)) {
+      const newState = deleteTransaction(state, tx.receiptNo, tx.date);
       refreshState(newState);
-      if (generatedReceipt?.receiptNo === receiptNo) resetForm();
+      if (generatedReceipt?.receiptNo === tx.receiptNo) resetForm();
     }
   };
 
@@ -158,6 +212,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     setOwnerName(tx.ownerName);
     setMobile(tx.mobile);
     setAmount(tx.amount);
+    setPaymentMode(tx.paymentMode || 'CASH');
     
     let dateVal = getTodayDateString();
     if (tx.date) {
@@ -180,10 +235,90 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     setMobile('');
     setAmount(MAINTENANCE_AMOUNT);
     setPaymentDate(getTodayDateString());
+    setPaymentMode('CASH');
     setGeneratedReceipt(null);
     setEditingTx(null);
     setIsChangingFlat(false);
     if (onClearEdit) onClearEdit();
+  };
+
+  const handleShareImage = async () => {
+    const element = document.getElementById('receipt-card');
+    if (!element) return;
+    
+    const btn = document.getElementById('share-img-btn');
+    if(btn) btn.textContent = 'Processing...';
+
+    try {
+        // @ts-ignore
+        if (!window.html2canvas) {
+            alert("Image generation library is loading. Please try again in 2 seconds.");
+            if(btn) btn.textContent = 'Share Receipt Image';
+            return;
+        }
+
+        // @ts-ignore
+        const canvas = await window.html2canvas(element, {
+            scale: 2.5, // High resolution
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false
+        });
+
+        canvas.toBlob(async (blob: Blob | null) => {
+            if (!blob) return;
+            const imageUrl = URL.createObjectURL(blob);
+
+            // 1. Always Download Image first (so user has it)
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            link.download = `Receipt_${generatedReceipt?.receiptNo}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // 2. If mobile exists, open specific WhatsApp chat
+            if (generatedReceipt?.mobile) {
+                const waLink = generateWhatsAppLink(
+                    generatedReceipt.mobile,
+                    generatedReceipt.receiptNo,
+                    generatedReceipt.name,
+                    generatedReceipt.flat,
+                    generatedReceipt.amount,
+                    generatedReceipt.date
+                );
+                
+                // Open WhatsApp after small delay
+                setTimeout(() => {
+                    window.open(waLink, '_blank');
+                    alert("Receipt Image Downloaded!\n\nWhatsApp chat opened.\n\nPlease attach the downloaded image to the chat.");
+                    if(btn) btn.textContent = 'Share Receipt Image';
+                }, 800);
+
+            } else {
+                // Fallback: System Share Sheet
+                const file = new File([blob], `Receipt_${generatedReceipt?.receiptNo}.png`, { type: 'image/png' });
+
+                if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: `Payment Receipt #${generatedReceipt?.receiptNo}`,
+                            text: `Payment Receipt for Flat ${generatedReceipt?.flat}`
+                        });
+                    } catch (error) {
+                        // User cancelled
+                    }
+                }
+                if(btn) btn.textContent = 'Share Receipt Image';
+            }
+        }, 'image/png');
+
+    } catch (error) {
+        console.error("Receipt generation failed", error);
+        alert("Failed to generate image.");
+        if(btn) btn.textContent = 'Share Receipt Image';
+    }
   };
 
   const renderTabs = () => (
@@ -229,7 +364,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
               </div>
             ) : (
               filteredHistory.map(tx => (
-                <div key={tx.receiptNo} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
+                <div key={`${tx.receiptNo}-${tx.date}`} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-bold text-lg text-slate-800 dark:text-white">{tx.flatNumber}</span>
@@ -245,6 +380,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
 
                   <div className="flex space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <button 
+                      onClick={() => viewReceipt(tx)}
+                      className="flex-1 flex items-center justify-center space-x-1 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 font-medium text-sm hover:bg-green-100 dark:hover:bg-green-900/40"
+                    >
+                      <ImageIcon size={16} />
+                      <span>Receipt</span>
+                    </button>
+                    <button 
                       onClick={() => startEdit(tx)}
                       className="flex-1 flex items-center justify-center space-x-1 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium text-sm hover:bg-blue-100 dark:hover:bg-blue-900/40"
                     >
@@ -252,7 +394,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                       <span>Edit</span>
                     </button>
                     <button 
-                      onClick={() => handleDelete(tx.receiptNo)}
+                      onClick={() => handleDelete(tx)}
                       className="flex-1 flex items-center justify-center space-x-1 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-medium text-sm hover:bg-red-100 dark:hover:bg-red-900/40"
                     >
                       <Trash2 size={16} />
@@ -277,11 +419,31 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
 
     return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
-        <div className="p-4">
+        <div className="p-4 flex-1 overflow-y-auto pb-24">
           <button onClick={resetForm} className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-4 flex items-center">
              &larr; Cancel
           </button>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6">{title}</h2>
+          
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{title}</h2>
+            {!editingTx && (
+                <div className="flex flex-col items-end animate-in fade-in slide-in-from-right-4 duration-500">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Receipt No</span>
+                    <span className="bg-yellow-400 text-black text-2xl font-black px-4 py-2 rounded-xl shadow-lg border-2 border-yellow-200 transform -rotate-2">
+                        #{previewReceiptNo}
+                    </span>
+                </div>
+            )}
+          </div>
+          
+          {isPaidForMonth && !editingTx && (
+             <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-xl border border-amber-200 dark:border-amber-800 flex items-start">
+                 <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 mr-2 mt-0.5 shrink-0" />
+                 <p className="text-xs text-amber-700 dark:text-amber-300">
+                     <strong>Warning:</strong> This flat has already recorded a payment for {new Date(paymentDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.
+                 </p>
+             </div>
+          )}
           
           <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-2xl border border-blue-100 dark:border-blue-800/50 mb-6 flex justify-between items-center group">
             <div>
@@ -347,13 +509,41 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Payment Mode</label>
+              <div className="flex space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="paymentMode" 
+                    value="CASH" 
+                    checked={paymentMode === 'CASH'} 
+                    onChange={() => setPaymentMode('CASH')}
+                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
+                  />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Cash</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="paymentMode" 
+                    value="BANK" 
+                    checked={paymentMode === 'BANK'} 
+                    onChange={() => setPaymentMode('BANK')}
+                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300"
+                  />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Bank Trf</span>
+                </label>
+              </div>
+            </div>
+
             <div className="pt-4">
               <button
                 type="submit"
                 className="w-full bg-blue-600 dark:bg-blue-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 dark:shadow-none active:scale-[0.98] transition-all flex items-center justify-center space-x-2"
               >
                 <CheckCircle2 size={20} />
-                <span>{editingTx ? 'Update Receipt' : 'Generate Receipt'}</span>
+                <span>{editingTx ? 'Update Receipt' : `Generate Receipt #${previewReceiptNo}`}</span>
               </button>
             </div>
           </form>
@@ -362,65 +552,127 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     );
   }
 
-  // Success View (Step 3)
+  // Success View (Step 3) - RECEIPT PREVIEW & SHARE
   if (step === 3 && generatedReceipt) {
      return (
-    <div className="p-4 flex flex-col items-center justify-center h-full text-center bg-slate-50 dark:bg-slate-950 transition-colors">
-      <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-6">
-        <CheckCircle2 size={40} />
-      </div>
+    <div className="p-4 flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors overflow-y-auto">
       
-      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Payment Successful</h2>
-      <p className="text-slate-500 dark:text-slate-400 mb-8">Receipt #{generatedReceipt?.receiptNo} Generated</p>
-
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors w-full mb-8 text-left">
-        <div className="flex justify-between mb-2">
-          <span className="text-slate-500 dark:text-slate-400">Amount</span>
-          <span className="font-bold text-slate-900 dark:text-white">{formatCurrency(generatedReceipt!.amount)}</span>
+      <div className="flex flex-col items-center justify-center text-center mb-6">
+        <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-3">
+            <CheckCircle2 size={32} />
         </div>
-        <div className="text-xs text-slate-400 dark:text-slate-500 text-right mb-4 italic">
-          {amountToWords(generatedReceipt!.amount)}
-        </div>
-        <div className="flex justify-between mb-2">
-          <span className="text-slate-500 dark:text-slate-400">Flat</span>
-          <span className="font-medium text-slate-900 dark:text-white">{generatedReceipt!.flat}</span>
-        </div>
-         <div className="flex justify-between mb-2">
-          <span className="text-slate-500 dark:text-slate-400">Date</span>
-          <span className="font-medium text-slate-900 dark:text-white">{generatedReceipt!.date}</span>
-        </div>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white">Payment Recorded</h2>
       </div>
 
-      {generatedReceipt!.mobile ? (
-        <a
-          href={generateWhatsAppLink(
-            generatedReceipt!.mobile,
-            generatedReceipt!.receiptNo,
-            generatedReceipt!.name,
-            generatedReceipt!.flat,
-            generatedReceipt!.amount,
-            generatedReceipt!.date
-          )}
-          target="_blank"
-          rel="noreferrer"
-          className="w-full flex items-center justify-center space-x-2 bg-[#25D366] text-white font-bold py-3 rounded-xl shadow-lg shadow-green-200 dark:shadow-none mb-3 hover:scale-[1.02] active:scale-95 transition-all"
+      {/* RECEIPT CARD TO CAPTURE */}
+      <div className="flex justify-center mb-6">
+          <div 
+            id="receipt-card"
+            className="bg-white w-full max-w-sm p-6 rounded-none shadow-xl border-t-4 border-blue-600 relative overflow-hidden text-slate-900"
+            style={{ minHeight: '400px' }}
+          >
+              {/* Receipt Header */}
+              <div className="text-center border-b-2 border-slate-100 pb-4 mb-4 relative">
+                  {generatedReceipt.isDuplicate && (
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full flex items-center justify-center pointer-events-none opacity-10">
+                          <span className="text-5xl font-black text-slate-900 transform -rotate-12 tracking-widest">DUPLICATE</span>
+                      </div>
+                  )}
+                  <h1 className="text-lg font-black uppercase tracking-tight text-slate-900">Continental Heights</h1>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">B Wing • Maintenance Receipt</p>
+              </div>
+
+              {/* Amount */}
+              <div className="text-center mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Amount Paid</p>
+                  <h2 className="text-3xl font-black text-slate-900">{formatCurrency(generatedReceipt.amount)}</h2>
+                  <p className="text-[9px] text-slate-500 italic mt-1">{amountToWords(generatedReceipt.amount)}</p>
+              </div>
+
+              {/* Details */}
+              <div className="space-y-3 text-sm mb-8">
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 items-center">
+                      <span className="text-slate-500 font-medium text-sm">Receipt No</span>
+                      {/* UPDATED: Bigger Receipt Number */}
+                      <span className="font-black text-slate-900 text-3xl">#{generatedReceipt.receiptNo}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2">
+                      <span className="text-slate-500 font-medium">Date</span>
+                      <span className="font-bold text-slate-900">{generatedReceipt.date}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2">
+                      <span className="text-slate-500 font-medium">Flat No</span>
+                      <span className="font-black text-lg text-slate-900">{generatedReceipt.flat}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2">
+                      <span className="text-slate-500 font-medium">Received From</span>
+                      <span className="font-bold text-slate-900 text-right w-1/2 leading-tight">{generatedReceipt.name}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 pt-2">
+                      <span className="text-slate-500 font-medium">Payment Mode</span>
+                      <span className="font-bold text-slate-900">{generatedReceipt.paymentMode === 'BANK' ? 'BANK TRF' : 'CASH'}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-6">
+                      <span className="text-slate-500 font-medium">Status</span>
+                      {/* UPDATED: Embossed Green Stamp Look */}
+                      <div className="border-4 border-green-700 text-green-700 font-serif font-black text-2xl px-6 py-2 rounded-lg transform -rotate-12 opacity-80 tracking-widest" style={{
+                          textShadow: '1px 1px 0px rgba(0,0,0,0.1)',
+                          boxShadow: 'inset 0 0 20px rgba(21, 128, 61, 0.1)'
+                      }}>
+                          PAID
+                      </div>
+                  </div>
+              </div>
+
+              {/* Footer */}
+              <div className="text-center mt-8 pt-4 border-t-2 border-slate-100">
+                  <p className="text-[10px] text-slate-400 uppercase font-bold">Authorized Signature</p>
+                  <p className="text-[8px] text-slate-300 mt-4">Computer Generated Receipt</p>
+              </div>
+              
+              {/* Decorative Circles */}
+              <div className="absolute -left-3 top-1/2 w-6 h-6 bg-slate-100 rounded-full"></div>
+              <div className="absolute -right-3 top-1/2 w-6 h-6 bg-slate-100 rounded-full"></div>
+          </div>
+      </div>
+
+      {/* ACTION BUTTONS */}
+      <div className="space-y-3 pb-24 max-w-sm mx-auto w-full">
+        <button
+          id="share-img-btn"
+          onClick={handleShareImage}
+          className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-200 dark:shadow-none hover:bg-blue-700 active:scale-95 transition-all"
         >
-          <Share2 size={20} />
-          <span>Share Receipt on WhatsApp</span>
-        </a>
-      ) : (
-         <div className="w-full flex items-center justify-center space-x-2 bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 font-bold py-3 rounded-xl mb-3">
+          <ImageIcon size={20} />
+          <span>Share Receipt Image</span>
+        </button>
+
+        {generatedReceipt.mobile ? (
+            <a
+            href={generateWhatsAppLink(
+                generatedReceipt.mobile,
+                generatedReceipt.receiptNo,
+                generatedReceipt.name,
+                generatedReceipt.flat,
+                generatedReceipt.amount,
+                generatedReceipt.date
+            )}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full flex items-center justify-center space-x-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold py-3.5 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+            >
             <Share2 size={20} />
-            <span>No Mobile for WhatsApp</span>
-         </div>
-      )}
-      
-      <button
-        onClick={resetForm}
-        className="w-full py-3 text-slate-600 dark:text-slate-300 font-medium rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-      >
-        Close & Done
-      </button>
+            <span>Send Text Message Only</span>
+            </a>
+        ) : null}
+        
+        <button
+            onClick={resetForm}
+            className="w-full py-3 text-slate-400 dark:text-slate-500 font-medium hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+        >
+            Close
+        </button>
+      </div>
     </div>
   );
   }

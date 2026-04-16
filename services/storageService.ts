@@ -258,11 +258,12 @@ export const loadData = (): AppState => {
       const state = JSON.parse(saved);
       // Basic validation: ensure it's an object with flats
       if (state && Array.isArray(state.flats)) {
-         // Migration for new features if data is old
+         // Migration for new features
          if (!state.hallBookings) state.hallBookings = [];
+         if (!state.vendors) state.vendors = [];
          if (!state.theme) state.theme = 'LIGHT'; // Default Theme
          
-         // Fix Receipt Counter if it falls behind actual data
+         // Fix Receipt Counter - No longer strictly needed for Global, but kept for legacy
          const maxReceipt = state.transactions.reduce((max: number, t: Transaction) => Math.max(max, t.receiptNo), 0);
          if (maxReceipt > state.lastReceiptNo) {
              state.lastReceiptNo = maxReceipt;
@@ -296,6 +297,7 @@ export const loadData = (): AppState => {
     transactions: [],
     financialRecords: [],
     hallBookings: [],
+    vendors: [],
     lastReceiptNo: 0,
     theme: 'LIGHT' // Default
   };
@@ -313,13 +315,26 @@ export const saveData = (state: AppState) => {
     
     // Automatic Cloud Sync Logic
     if (isCloudEnabled()) {
+      window.dispatchEvent(new CustomEvent('sync-status', { detail: 'SYNCING' }));
       saveToCloud(state).then(success => {
-        if (!success) console.warn("Background cloud upload failed.");
+        if (!success) {
+          console.warn("Background cloud upload failed.");
+          window.dispatchEvent(new CustomEvent('sync-status', { detail: 'ERROR' }));
+        } else {
+          window.dispatchEvent(new CustomEvent('sync-status', { detail: 'SYNCED' }));
+        }
       });
     } else {
         const config = getCloudConfig();
         if (config && initFirebase(config)) {
-             saveToCloud(state);
+             window.dispatchEvent(new CustomEvent('sync-status', { detail: 'SYNCING' }));
+             saveToCloud(state).then(success => {
+               if (!success) {
+                 window.dispatchEvent(new CustomEvent('sync-status', { detail: 'ERROR' }));
+               } else {
+                 window.dispatchEvent(new CustomEvent('sync-status', { detail: 'SYNCED' }));
+               }
+             });
         }
     }
   } catch (e) {
@@ -359,9 +374,26 @@ export const updateFlatDetails = (state: AppState, flatId: string, updates: Part
 };
 
 /**
- * Processes a maintenance payment for a flat.
+ * Helper to get next receipt number for a specific month
+ * Starting March 2026, receipt numbers continue from the previous month.
  */
-export const processPayment = (state: AppState, flatId: string, ownerName: string, mobile: string, amount: number, date: string) => {
+export const getNextReceiptNoForMonth = (state: AppState, dateString: string): number => {
+    // Continuous numbering system across all months starting from 2026.
+    // This allows backdating receipts (e.g., for Jan or Feb) while keeping 
+    // the receipt numbers sequential from the last issued one (e.g., 200 -> 201).
+    const relevantTx = state.transactions.filter(t => t.date >= '2026-01-01');
+    const maxReceipt = relevantTx.reduce((max, t) => Math.max(max, t.receiptNo), 0);
+    
+    // If no transactions exist in 2026 yet, start from 1.
+    // Otherwise, continue from the maximum found (e.g., 200 + 1 = 201).
+    return maxReceipt + 1;
+};
+
+/**
+ * Processes a maintenance payment for a flat.
+ * Receipt Numbers reset every month before March 2026, then continue globally.
+ */
+export const processPayment = (state: AppState, flatId: string, ownerName: string, mobile: string, amount: number, date: string, paymentMode: 'CASH' | 'BANK' = 'CASH') => {
   const newState = { 
     ...state,
     flats: [...state.flats],
@@ -371,7 +403,9 @@ export const processPayment = (state: AppState, flatId: string, ownerName: strin
   const flatIndex = newState.flats.findIndex(f => f.id === flatId);
   if (flatIndex === -1) throw new Error("Flat not found");
 
-  const receiptNo = newState.lastReceiptNo + 1;
+  // Calculate receipt number based on the month
+  const receiptNo = getNextReceiptNoForMonth(state, date);
+
   const transaction: Transaction = {
     receiptNo,
     date,
@@ -380,9 +414,11 @@ export const processPayment = (state: AppState, flatId: string, ownerName: strin
     flatNumber: newState.flats[flatIndex].flatNumber,
     ownerName,
     amount,
-    mobile
+    mobile,
+    paymentMode
   };
 
+  // Update flat details if changed
   newState.flats[flatIndex] = {
     ...newState.flats[flatIndex],
     status: PaymentStatus.PAID,
@@ -391,7 +427,11 @@ export const processPayment = (state: AppState, flatId: string, ownerName: strin
   };
 
   newState.transactions = [transaction, ...newState.transactions];
-  newState.lastReceiptNo = receiptNo;
+  
+  // Update global counter just in case, though it's less relevant now
+  if (receiptNo > newState.lastReceiptNo) {
+      newState.lastReceiptNo = receiptNo;
+  }
 
   saveData(newState);
   return { newState, transaction };
@@ -407,30 +447,14 @@ export const updateTransaction = (state: AppState, receiptNo: number, updates: P
     transactions: [...state.transactions]
   };
   
-  const txIndex = newState.transactions.findIndex(t => t.receiptNo === receiptNo);
-  if (txIndex === -1) throw new Error("Transaction not found");
-
-  const oldTx = newState.transactions[txIndex];
+  const txIndex = newState.transactions.findIndex(t => t.receiptNo === receiptNo && (updates.date ? t.date.substring(0,7) === updates.date.substring(0,7) : true));
+  const indexToUse = txIndex !== -1 ? txIndex : newState.transactions.findIndex(t => t.receiptNo === receiptNo);
   
-  // If flat changed, reset old flat status if it has no other transactions
-  if (updates.flatId && updates.flatId !== oldTx.flatId) {
-      const remainingTxForOldFlat = newState.transactions.find(t => t.flatId === oldTx.flatId && t.receiptNo !== receiptNo);
-      if (!remainingTxForOldFlat) {
-          const oldFlatIndex = newState.flats.findIndex(f => f.id === oldTx.flatId);
-          if (oldFlatIndex !== -1) {
-              newState.flats[oldFlatIndex].status = PaymentStatus.UNPAID;
-          }
-      }
-      
-      // Update new flat status
-      const newFlatIndex = newState.flats.findIndex(f => f.id === updates.flatId);
-      if (newFlatIndex !== -1) {
-          newState.flats[newFlatIndex].status = PaymentStatus.PAID;
-      }
-  }
+  if (indexToUse === -1) throw new Error("Transaction not found");
 
+  const oldTx = newState.transactions[indexToUse];
   const updatedTx = { ...oldTx, ...updates };
-  newState.transactions[txIndex] = updatedTx;
+  newState.transactions[indexToUse] = updatedTx;
 
   // Sync owner name/mobile back to flat master
   const flatIndex = newState.flats.findIndex(f => f.id === updatedTx.flatId);
@@ -448,30 +472,31 @@ export const updateTransaction = (state: AppState, receiptNo: number, updates: P
 };
 
 /**
- * Deletes a maintenance transaction and resets flat status if necessary.
+ * Deletes a maintenance transaction.
  */
-export const deleteTransaction = (state: AppState, receiptNo: number) => {
+export const deleteTransaction = (state: AppState, receiptNo: number, dateContext?: string) => {
   const newState = { 
     ...state,
     flats: [...state.flats],
     transactions: [...state.transactions]
   };
   
-  const txIndex = newState.transactions.findIndex(t => t.receiptNo === receiptNo);
-  if (txIndex === -1) throw new Error("Transaction not found");
+  const index = newState.transactions.findIndex(t => 
+      t.receiptNo === receiptNo && 
+      (dateContext ? t.date === dateContext : true)
+  );
 
-  const tx = newState.transactions[txIndex];
-  newState.transactions = newState.transactions.filter(t => t.receiptNo !== receiptNo);
+  if (index === -1) throw new Error("Transaction not found");
 
-  const remainingTx = newState.transactions.find(t => t.flatId === tx.flatId);
-  if (!remainingTx) {
-    const flatIndex = newState.flats.findIndex(f => f.id === tx.flatId);
-    if (flatIndex !== -1) {
-      newState.flats[flatIndex] = {
-        ...newState.flats[flatIndex],
-        status: PaymentStatus.UNPAID
-      };
-    }
+  const tx = newState.transactions[index];
+  newState.transactions.splice(index, 1);
+
+  const flatIndex = newState.flats.findIndex(f => f.id === tx.flatId);
+  if (flatIndex !== -1) {
+    newState.flats[flatIndex] = {
+      ...newState.flats[flatIndex],
+      status: PaymentStatus.UNPAID
+    };
   }
 
   saveData(newState);
@@ -537,12 +562,14 @@ export const importTransactionsFromCSV = (state: AppState, csvText: string) => {
 
     const amount = parseFloat(amountStr);
     const flat = newState.flats.find(f => f.flatNumber === flatNumber);
+    const txDate = date || new Date().toISOString().split('T')[0];
 
     if (flat) {
-      const receiptNo = receiptNoStr ? parseInt(receiptNoStr) : newState.lastReceiptNo + 1;
+      const receiptNo = receiptNoStr ? parseInt(receiptNoStr) : getNextReceiptNoForMonth(newState, txDate);
+
       const transaction: Transaction = {
         receiptNo,
-        date: date || new Date().toISOString().split('T')[0],
+        date: txDate,
         timestamp: Date.now(),
         flatId: flat.id,
         flatNumber,
@@ -552,8 +579,7 @@ export const importTransactionsFromCSV = (state: AppState, csvText: string) => {
       };
 
       newState.transactions = [transaction, ...newState.transactions];
-      if (receiptNo > newState.lastReceiptNo) newState.lastReceiptNo = receiptNo;
-
+      
       const flatIndex = newState.flats.findIndex(f => f.id === flat.id);
       newState.flats[flatIndex] = {
          ...newState.flats[flatIndex],
@@ -657,7 +683,7 @@ export const getCloudConfig = (): FirebaseConfig | null => {
 export const syncFromCloud = async (): Promise<AppState | null> => {
   const data = await loadFromCloud();
   if (data) {
-    saveData(data);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     return data;
   }
   return null;
@@ -759,7 +785,47 @@ export const updateInsight = (state: AppState, text: string) => {
   return newState;
 };
 
-// --- HALL BOOKING FUNCTIONS ---
+// --- VENDOR MANAGEMENT FUNCTIONS ---
+
+export const addVendor = (state: AppState, vendor: Omit<Vendor, 'id' | 'createdAt'>) => {
+  const newState = {
+    ...state,
+    vendors: [...(state.vendors || [])]
+  };
+  
+  const newVendor: Vendor = {
+    ...vendor,
+    id: `vendor-${Date.now()}`,
+    createdAt: new Date().toISOString()
+  };
+  
+  newState.vendors = [newVendor, ...newState.vendors];
+  saveData(newState);
+  return newState;
+};
+
+export const updateVendor = (state: AppState, id: string, updates: Partial<Vendor>) => {
+  const newState = {
+    ...state,
+    vendors: [...(state.vendors || [])]
+  };
+  
+  const index = newState.vendors.findIndex(v => v.id === id);
+  if (index !== -1) {
+    newState.vendors[index] = { ...newState.vendors[index], ...updates };
+    saveData(newState);
+  }
+  return newState;
+};
+
+export const deleteVendor = (state: AppState, id: string) => {
+  const newState = {
+    ...state,
+    vendors: (state.vendors || []).filter(v => v.id !== id)
+  };
+  saveData(newState);
+  return newState;
+};
 
 export const addHallBooking = (state: AppState, booking: Omit<HallBooking, 'id' | 'timestamp'>) => {
   const newState = {

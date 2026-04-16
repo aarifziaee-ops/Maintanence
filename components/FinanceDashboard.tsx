@@ -47,7 +47,20 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
   const balanceData = useMemo(() => {
     let cashInHand = 0;
     let cashAtBank = 0;
-    const allRecords = [...state.financialRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // Add maintenance transactions
+    state.transactions.forEach(t => {
+      const mode = t.paymentMode || 'CASH';
+      if (mode === 'CASH') cashInHand += t.amount;
+      else cashAtBank += t.amount;
+    });
+    
+    // Add hall bookings (assuming CASH by default if no paymentMode exists, but HallBooking doesn't have paymentMode yet. Let's assume CASH)
+    (state.hallBookings || []).forEach(h => {
+      cashInHand += h.amount;
+    });
+
+    const allRecords = [...state.financialRecords].filter(r => r.type !== 'VENDOR_BILL').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     allRecords.forEach(r => {
       const mode = r.paymentMode || 'CASH';
       if (r.type === 'INCOME') {
@@ -60,7 +73,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
       }
     });
     return { cashInHand, cashAtBank };
-  }, [state.financialRecords]);
+  }, [state.financialRecords, state.transactions, state.hallBookings]);
 
   const reportData = useMemo(() => {
      const startOfMonthStr = selectedMonth + '-01';
@@ -69,7 +82,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
      const endOfMonthStr = startOfNextMonth.toISOString().slice(0, 10);
      let openingBalance = 0;
      const maintenanceBefore = state.transactions.filter(t => t.date < startOfMonthStr).reduce((sum, t) => sum + t.amount, 0);
-     state.financialRecords.forEach(r => {
+     state.financialRecords.filter(r => r.type !== 'VENDOR_BILL').forEach(r => {
          if (r.date < startOfMonthStr) {
              if (r.type === 'INCOME') openingBalance += r.amount;
              if (r.type === 'EXPENSE') openingBalance -= r.amount;
@@ -89,7 +102,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
   const categorizedLedger = useMemo(() => {
     const categories: Record<string, { totalIncome: number; totalExpense: number; count: number }> = {};
     
-    state.financialRecords.forEach(r => {
+    state.financialRecords.filter(r => r.type !== 'VENDOR_BILL').forEach(r => {
       const cat = r.category || 'General';
       if (!categories[cat]) {
         categories[cat] = { totalIncome: 0, totalExpense: 0, count: 0 };
@@ -108,7 +121,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
   const detailRecords = useMemo(() => {
     if (!selectedCategory) return [];
     return state.financialRecords
-      .filter(r => r.category === selectedCategory)
+      .filter(r => r.category === selectedCategory && r.type !== 'VENDOR_BILL')
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [state.financialRecords, selectedCategory]);
 
@@ -180,7 +193,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
 
         {activeTab === 'TRANSACTIONS' && (
           <div className="space-y-3">
-             {state.financialRecords.filter(r => r.date.startsWith(selectedMonth)).sort((a,b) => b.date.localeCompare(a.date)).map(record => (
+             {state.financialRecords.filter(r => r.date.startsWith(selectedMonth) && r.type !== 'VENDOR_BILL').sort((a,b) => b.date.localeCompare(a.date)).map(record => (
                 <div key={record.id} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center group shadow-sm transition-all hover:border-slate-200">
                     <div className="flex items-center space-x-3 min-w-0 flex-1">
                         <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${record.type === 'INCOME' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>

@@ -1,29 +1,54 @@
 
 import React, { useState, useMemo } from 'react';
-import { AppState, PaymentStatus } from '../types';
+import { AppState } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { formatCurrency, formatDate } from '../utils/helpers';
-import { Sparkles, TrendingUp, Users, IndianRupee, AlertCircle, Percent, Clock, BarChart3, Receipt, CalendarCheck } from 'lucide-react';
-import { generateFinancialInsight } from '../services/geminiService';
-import { updateInsight } from '../services/storageService';
+import { formatCurrency } from '../utils/helpers';
+import { Users, IndianRupee, AlertCircle, Percent, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, Calendar, Wallet } from 'lucide-react';
+import { MAINTENANCE_AMOUNT } from '../constants';
 
 interface DashboardProps {
   state: AppState;
   refreshState: (newState: AppState) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
-  const [loadingInsight, setLoadingInsight] = useState(false);
+const Dashboard: React.FC<DashboardProps> = ({ state }) => {
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
-  // Derived Stats to ensure perfect synchronization
+  const handlePrevMonth = () => {
+    const d = new Date(selectedMonth + '-01');
+    d.setMonth(d.getMonth() - 1);
+    setSelectedMonth(d.toISOString().slice(0, 7));
+  };
+
+  const handleNextMonth = () => {
+    const d = new Date(selectedMonth + '-01');
+    d.setMonth(d.getMonth() + 1);
+    setSelectedMonth(d.toISOString().slice(0, 7));
+  };
+
+  // Derived Stats based on SELECTED MONTH
   const stats = useMemo(() => {
-    // A flat is "Paid" if it has at least one transaction
-    const paidFlatIds = new Set(state.transactions.map(t => t.flatId));
+    // 1. Get transactions only for the selected month
+    const monthTransactions = state.transactions.filter(t => t.date.startsWith(selectedMonth));
+    
+    // 2. Determine paid flats for this month
+    const paidFlatIds = new Set(monthTransactions.map(t => t.flatId));
     const paidCount = paidFlatIds.size;
     const unpaidCount = Math.max(0, state.flats.length - paidCount);
     
-    const totalCollected = state.transactions.reduce((acc, curr) => acc + curr.amount, 0);
+    // 3. Total collected in this month
+    const totalCollected = monthTransactions.reduce((acc, curr) => acc + curr.amount, 0);
     
+    // Payment Mode Split
+    const cashTransactions = monthTransactions.filter(t => t.paymentMode === 'CASH' || !t.paymentMode);
+    const bankTransactions = monthTransactions.filter(t => t.paymentMode === 'BANK');
+    
+    const cashAmount = cashTransactions.reduce((acc, curr) => acc + curr.amount, 0);
+    const bankAmount = bankTransactions.reduce((acc, curr) => acc + curr.amount, 0);
+    const cashCount = cashTransactions.length;
+    const bankCount = bankTransactions.length;
+    
+    // 4. Today's collection (only if today is in the selected month)
     const todayStr = new Date().toISOString().split('T')[0];
     const todayCollected = state.transactions
       .filter(t => t.date.startsWith(todayStr))
@@ -31,8 +56,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
 
     const percentPaid = state.flats.length > 0 ? Math.round((paidCount / state.flats.length) * 100) : 0;
     
-    // Explicitly find the highest receipt number from data
-    const actualLastReceipt = state.transactions.reduce((max, t) => Math.max(max, t.receiptNo), 0);
+    // 5. Calculate Outstanding Amount
+    const outstandingAmount = unpaidCount * MAINTENANCE_AMOUNT;
 
     return {
       paidCount,
@@ -40,9 +65,14 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
       totalCollected,
       todayCollected,
       percentPaid,
-      lastReceipt: actualLastReceipt || state.lastReceiptNo
+      monthTransactions,
+      outstandingAmount,
+      cashAmount,
+      bankAmount,
+      cashCount,
+      bankCount
     };
-  }, [state.flats, state.transactions, state.lastReceiptNo]);
+  }, [state.flats, state.transactions, selectedMonth]);
 
   const pieData = [
     { name: 'Paid', value: stats.paidCount },
@@ -51,49 +81,60 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
 
   const PIE_COLORS = ['#22c55e', '#ef4444'];
 
-  const last7Days = [...Array(7)].map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    return d.toISOString().split('T')[0];
-  });
+  // Trend data for the selected month
+  const dailyTrend = useMemo(() => {
+      const daysInMonth = new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0).getDate();
+      const data = [];
+      for(let i = 1; i <= daysInMonth; i++) {
+          const dayStr = `${selectedMonth}-${String(i).padStart(2, '0')}`;
+          const dailySum = state.transactions
+              .filter(t => t.date === dayStr)
+              .reduce((sum, t) => sum + t.amount, 0);
+          
+          if (dailySum > 0 || i % 5 === 0) { // Optimize points for chart
+              data.push({
+                  name: String(i),
+                  amount: dailySum
+              });
+          }
+      }
+      return data;
+  }, [state.transactions, selectedMonth]);
 
-  const trendData = last7Days.map(dateStr => {
-    const dailySum = state.transactions
-      .filter(t => t.date.startsWith(dateStr))
-      .reduce((sum, t) => sum + t.amount, 0);
-    
-    return {
-      name: new Date(dateStr).toLocaleDateString('en-IN', { weekday: 'short' }),
-      amount: dailySum
-    };
-  });
-
-  const handleGenerateInsight = async () => {
-    setLoadingInsight(true);
-    const text = await generateFinancialInsight(state);
-    const newState = updateInsight(state, text);
-    refreshState(newState);
-    setLoadingInsight(false);
-  };
-
-  const insight = state.aiInsight?.text;
-  const lastUpdated = state.aiInsight?.timestamp 
-    ? new Date(state.aiInsight.timestamp).toLocaleString() 
-    : null;
+  const monthLabel = new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
     <div className="p-4 space-y-6 bg-slate-50 dark:bg-slate-950 min-h-full transition-colors">
       
+      {/* Month Navigator - Compact Version */}
+      <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-2 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between sticky top-0 z-20 mx-1">
+          <button onClick={handlePrevMonth} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+              <ChevronLeft size={18} className="text-slate-600 dark:text-slate-300" />
+          </button>
+          
+          <div className="flex flex-col items-center">
+              <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Period</div>
+              <h2 className="text-sm font-black text-slate-800 dark:text-white uppercase flex items-center">
+                  <Calendar size={14} className="mr-1.5 text-blue-500" />
+                  {monthLabel}
+              </h2>
+          </div>
+
+          <button onClick={handleNextMonth} className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+              <ChevronRight size={18} className="text-slate-600 dark:text-slate-300" />
+          </button>
+      </div>
+
       {/* Financial Stats */}
       <div className="grid grid-cols-2 gap-4">
         {/* Total Collected */}
         <div className="bg-blue-600 dark:bg-blue-700 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center">
             <div className="relative z-10 flex flex-col items-center justify-center">
-                <p className="text-blue-100 text-xs font-medium mb-1 flex items-center justify-center">
-                    <IndianRupee size={14} className="mr-1" />
-                    Total Collected
+                <p className="text-blue-100 text-[10px] font-black uppercase mb-1 flex items-center justify-center">
+                    <IndianRupee size={12} className="mr-1" />
+                    Collection ({new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'short' })})
                 </p>
-                <h2 className="text-2xl font-bold truncate tracking-tight">{formatCurrency(stats.totalCollected)}</h2>
+                <h2 className="text-2xl font-black truncate tracking-tight">{formatCurrency(stats.totalCollected)}</h2>
             </div>
             <div className="absolute -right-6 -top-6 w-20 h-20 bg-blue-500 rounded-full opacity-50 blur-xl"></div>
         </div>
@@ -101,13 +142,34 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
         {/* Today's Collection */}
         <div className="bg-emerald-500 dark:bg-emerald-600 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center">
              <div className="relative z-10 flex flex-col items-center justify-center">
-                <p className="text-emerald-50 text-xs font-medium mb-1 flex items-center justify-center">
-                    <CalendarCheck size={14} className="mr-1" />
+                <p className="text-emerald-50 text-[10px] font-black uppercase mb-1 flex items-center justify-center">
+                    <CalendarCheck size={12} className="mr-1" />
                     Today's Collection
                 </p>
-                <h2 className="text-2xl font-bold tracking-tight">{formatCurrency(stats.todayCollected)}</h2>
+                <h2 className="text-2xl font-black tracking-tight">{formatCurrency(stats.todayCollected)}</h2>
              </div>
              <div className="absolute -right-6 -top-6 w-20 h-20 bg-emerald-400 rounded-full opacity-30 blur-xl"></div>
+        </div>
+      </div>
+
+      {/* Payment Modes */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+           <div className="flex items-center justify-center space-x-1 text-slate-500 dark:text-slate-400 mb-1">
+            <Wallet size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Cash in Hand</span>
+          </div>
+          <p className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{formatCurrency(stats.cashAmount)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">{stats.cashCount} payments</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+           <div className="flex items-center justify-center space-x-1 text-slate-500 dark:text-slate-400 mb-1">
+            <IndianRupee size={14} />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Cash at Bank</span>
+          </div>
+          <p className="text-lg font-bold text-slate-800 dark:text-white leading-tight">{formatCurrency(stats.bankAmount)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">{stats.bankCount} transfers</p>
         </div>
       </div>
 
@@ -148,11 +210,11 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
         <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-4 flex items-center">
             <BarChart3 size={16} className="mr-2 text-blue-500" />
-            Weekly Trend
+            Daily Trend ({new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'short' })})
           </h3>
           <div className="h-40 w-full">
              <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={trendData}>
+               <BarChart data={dailyTrend}>
                  <XAxis dataKey="name" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
                  <YAxis tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} width={30} />
                  <Tooltip cursor={{fill: '#f1f5f9'}} contentStyle={{ borderRadius: '8px', border: 'none', backgroundColor: '#1e293b', color: '#f8fafc' }} />
@@ -180,25 +242,28 @@ const Dashboard: React.FC<DashboardProps> = ({ state, refreshState }) => {
         </div>
       </div>
 
-      {/* AI Insight */}
-      <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 p-6 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-indigo-900 dark:text-indigo-200 font-bold flex items-center">
-            <Sparkles className="w-5 h-5 mr-2 text-indigo-600 dark:text-indigo-400" />
-            AI Insight
-          </h3>
-          <button onClick={handleGenerateInsight} disabled={loadingInsight} className="text-xs bg-indigo-600 dark:bg-indigo-500 text-white px-3 py-1.5 rounded-full font-medium hover:bg-indigo-700 disabled:opacity-50">
-            {loadingInsight ? 'Analyzing...' : 'Generate Analysis'}
-          </button>
-        </div>
-        {insight ? (
+      {/* Outstanding Amount (Replaces AI Insight) */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 relative overflow-hidden">
+        <div className="flex items-center justify-between relative z-10">
           <div>
-            <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed mb-2">{insight}</p>
-            {lastUpdated && <p className="text-[10px] text-slate-400 dark:text-slate-500 text-right">Last updated: {lastUpdated}</p>}
+            <h3 className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider flex items-center mb-1">
+              <AlertCircle className="w-4 h-4 mr-1 text-red-500" />
+              Outstanding Amount
+            </h3>
+            <p className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">
+               {formatCurrency(stats.outstandingAmount)}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1 font-medium">
+               {stats.unpaidCount} flats pending x {formatCurrency(MAINTENANCE_AMOUNT)}
+            </p>
           </div>
-        ) : (
-          <p className="text-slate-400 dark:text-slate-500 text-sm italic">Tap generate to analyze collection trends.</p>
-        )}
+           <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-full text-red-500 dark:text-red-400">
+             <Wallet size={24} />
+           </div>
+        </div>
+        <div className="absolute right-0 bottom-0 opacity-5 dark:opacity-10 transform translate-y-1/4 translate-x-1/4">
+             <Wallet size={120} />
+        </div>
       </div>
     </div>
   );

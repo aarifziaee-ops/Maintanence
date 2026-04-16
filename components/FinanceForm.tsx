@@ -20,6 +20,7 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
   const [amount, setAmount] = useState<number | ''>('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
+  const [vendorId, setVendorId] = useState('');
   
   // AI State
   const [aiInput, setAiInput] = useState('');
@@ -27,7 +28,7 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
 
   useEffect(() => {
     if (recordToEdit) {
-      setType(recordToEdit.type);
+      setType(recordToEdit.type as any);
       setPaymentMode(recordToEdit.paymentMode || 'CASH');
       try {
         setDate(new Date(recordToEdit.date).toISOString().split('T')[0]);
@@ -37,6 +38,7 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
       setAmount(recordToEdit.amount);
       setCategory(recordToEdit.category);
       setDescription(recordToEdit.description);
+      setVendorId(recordToEdit.vendorId || '');
     }
   }, [recordToEdit]);
 
@@ -69,7 +71,8 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
         date,
         amount: Number(amount),
         category: type === 'TRANSFER' ? 'Internal Transfer' : category,
-        description
+        description,
+        vendorId: type === 'EXPENSE' && vendorId ? vendorId : undefined
       });
       refreshState(newState);
     } else {
@@ -79,7 +82,8 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
         date,
         amount: Number(amount),
         category: type === 'TRANSFER' ? 'Internal Transfer' : category,
-        description
+        description,
+        vendorId: type === 'EXPENSE' && vendorId ? vendorId : undefined
       });
       refreshState(newState);
     }
@@ -253,6 +257,23 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
                        <option value="Legal" />
                        <option value="Miscellaneous" />
                     </datalist>
+                 </div>
+              )}
+
+              {/* Vendor Selection (Only for EXPENSE) */}
+              {type === 'EXPENSE' && state.vendors && state.vendors.length > 0 && (
+                 <div>
+                    <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Link to Vendor (Optional)</label>
+                    <select 
+                      value={vendorId}
+                      onChange={(e) => setVendorId(e.target.value)}
+                      className="w-full px-3 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                    >
+                      <option value="">-- No Vendor --</option>
+                      {state.vendors.map(v => (
+                        <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
+                      ))}
+                    </select>
                  </div>
               )}
 

@@ -1,15 +1,20 @@
+
 {
   "name": "continental-heights-manager",
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node -e \"import('fs').then(fs => { try { if(fs.existsSync('sw.js')) fs.copyFileSync('sw.js', 'dist/sw.js'); if(fs.existsSync('manifest.json')) fs.copyFileSync('manifest.json', 'dist/manifest.json'); } catch(e) { console.error('Copy failed', e); } })\"",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^0.1.0",
+    "@google/genai": "*",
+    "firebase": "^10.8.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

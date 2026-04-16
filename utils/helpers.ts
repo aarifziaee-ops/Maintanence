@@ -98,6 +98,27 @@ export const generateReminderLink = (mobile: string, name: string, flat: string)
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
 
+export const generateSmartBillLink = (
+  mobile: string, 
+  name: string, 
+  flat: string, 
+  monthStr: string, 
+  current: number, 
+  arrears: number, 
+  total: number
+): string => {
+  const cleanMobile = getCleanLocalMobile(mobile);
+  if (!cleanMobile) return '#';
+  
+  const arrearsText = arrears > 0 
+    ? `\nPrevious Arrears: *Rs. ${arrears}*` 
+    : (arrears < 0 ? `\nAdvance Balance: *Rs. ${Math.abs(arrears)}*` : '');
+    
+  const message = `*MAINTENANCE BILL*\n${BUILDING_NAME}\n\nDear ${name || 'Member'},\n\nYour maintenance bill for *${monthStr}* has been generated for Flat *${flat}*.\n\nCurrent Month: *Rs. ${current}*${arrearsText}\n*Total Payable: Rs. ${total}*\n\nPlease pay by the 10th of the month to avoid late fees.\n\nThank you.`;
+  
+  return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
+};
+
 export const downloadPDF = (elementId: string, filename: string) => {
   const element = document.getElementById(elementId);
   if (!element) return;

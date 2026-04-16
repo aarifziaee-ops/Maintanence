@@ -9,13 +9,15 @@ import FinanceDashboard from './components/FinanceDashboard';
 import FinanceForm from './components/FinanceForm';
 import FlatMaster from './components/FlatMaster';
 import HallBooking from './components/HallBooking';
+import VendorMaster from './components/VendorMaster';
 import { AppState, ViewState, Transaction, FinancialRecord } from './types';
-import { loadData } from './services/storageService';
+import { loadData, getCloudConfig, syncFromCloud } from './services/storageService';
 import { STORAGE_KEY } from './constants';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('DASHBOARD');
   const [state, setState] = useState<AppState | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'IDLE' | 'SYNCING' | 'SYNCED' | 'ERROR'>('IDLE');
   
   // Edit State for Maintenance Transactions
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
@@ -36,6 +38,24 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
 
+    // Auto-pull from cloud
+    const autoPullFromCloud = async () => {
+      const config = getCloudConfig();
+      if (config) {
+        setSyncStatus('SYNCING');
+        try {
+          const cloudData = await syncFromCloud();
+          if (cloudData) {
+            setState(cloudData);
+          }
+          setSyncStatus('SYNCED');
+        } catch (e) {
+          setSyncStatus('ERROR');
+        }
+      }
+    };
+    autoPullFromCloud();
+
     // Listen for storage events (cross-tab synchronization)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) {
@@ -50,9 +70,15 @@ const App: React.FC = () => {
       }
     };
 
+    const handleSyncStatus = (e: any) => {
+      setSyncStatus(e.detail);
+    };
+
     window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('sync-status', handleSyncStatus);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('sync-status', handleSyncStatus);
     };
   }, []);
 
@@ -91,7 +117,7 @@ const App: React.FC = () => {
   if (!state) return <div className="flex h-screen items-center justify-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950">Loading...</div>;
 
   return (
-    <Layout currentView={view} setView={setView}>
+    <Layout currentView={view} setView={setView} syncStatus={syncStatus}>
       {view === 'DASHBOARD' && <Dashboard state={state} refreshState={handleStateUpdate} />}
       
       {view === 'PAYMENT' && (
@@ -126,6 +152,13 @@ const App: React.FC = () => {
         />
       )}
       
+      {view === 'VENDORS' && (
+        <VendorMaster 
+          state={state} 
+          refreshState={handleStateUpdate}
+        />
+      )}
+      
       {view === 'REPORTS' && (
         <Reports 
           state={state} 
@@ -148,7 +181,6 @@ const App: React.FC = () => {
           recordToEdit={financeRecordToEdit}
         />
       )}
-
     </Layout>
   );
 };

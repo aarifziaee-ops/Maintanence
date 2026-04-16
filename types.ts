@@ -31,17 +31,32 @@ export interface Transaction {
   ownerName: string;
   amount: number;
   mobile: string;
+  paymentMode?: 'CASH' | 'BANK';
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  mobile?: string;
+  email?: string;
+  contactPerson?: string;
+  category: string; // e.g., 'Security', 'Cleaning', 'Plumbing'
+  paymentType: 'MONTHLY' | 'PER_WORK';
+  defaultAmount: number;
+  openingBalance: number; // Amount owed to vendor at the start
+  createdAt: string;
 }
 
 export interface FinancialRecord {
   id: string;
-  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'VENDOR_BILL';
   paymentMode: 'CASH' | 'BANK';
   amount: number;
   date: string; // ISO String YYYY-MM-DD
   category: string;
   description: string;
   timestamp: number;
+  vendorId?: string; // Link to Vendor
 }
 
 export interface HallBooking {
@@ -61,12 +76,13 @@ export interface AppState {
   transactions: Transaction[];
   financialRecords: FinancialRecord[];
   hallBookings: HallBooking[];
+  vendors: Vendor[];
   lastReceiptNo: number;
-  theme?: 'LIGHT' | 'DARK'; // Added Theme
+  theme?: 'LIGHT' | 'DARK';
   aiInsight?: {
     text: string;
     timestamp: number;
   };
 }
 
-export type ViewState = 'DASHBOARD' | 'PAYMENT' | 'FLATS' | 'ACCOUNTS' | 'REPORTS' | 'UNPAID_LIST' | 'SETTINGS' | 'HALL_BOOKING';
+export type ViewState = 'DASHBOARD' | 'PAYMENT' | 'FLATS' | 'ACCOUNTS' | 'REPORTS' | 'UNPAID_LIST' | 'SETTINGS' | 'HALL_BOOKING' | 'VENDORS';

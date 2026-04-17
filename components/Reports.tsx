@@ -13,7 +13,7 @@ interface ReportsProps {
 }
 
 const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTransaction }) => {
-  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'AUDIT' | 'BILLING'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
+  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'AUDIT' | 'BILLING' | 'BANK_TRANSFER'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
   
   // Date Range State for Collection Report
   const [fromDate, setFromDate] = useState<string>(getTodayDateString());
@@ -27,6 +27,9 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
   
   // Year State for Audit Report
   const [auditYear, setAuditYear] = useState(new Date().getFullYear().toString());
+
+  // Month State for Bank Transfer Report
+  const [bankTransferMonth, setBankTransferMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
   // Copy State
   const [copied, setCopied] = useState(false);
@@ -53,6 +56,18 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     const d = new Date(billingMonth + '-01');
     d.setMonth(d.getMonth() + 1);
     setBillingMonth(d.toISOString().slice(0, 7));
+  };
+
+  const handlePrevBankTransferMonth = () => {
+    const d = new Date(bankTransferMonth + '-01');
+    d.setMonth(d.getMonth() - 1);
+    setBankTransferMonth(d.toISOString().slice(0, 7));
+  };
+
+  const handleNextBankTransferMonth = () => {
+    const d = new Date(bankTransferMonth + '-01');
+    d.setMonth(d.getMonth() + 1);
+    setBankTransferMonth(d.toISOString().slice(0, 7));
   };
 
   const rangeReport = useMemo(() => {
@@ -108,11 +123,18 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     }).sort((a, b) => a.flatNumber.localeCompare(b.flatNumber));
   }, [state.flats, state.transactions, billingMonth]);
 
+  const bankTransferData = useMemo(() => {
+    return state.transactions.filter(t => 
+      t.date.startsWith(bankTransferMonth) && t.paymentMode === 'BANK'
+    ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [state.transactions, bankTransferMonth]);
+
   const handleDownload = () => {
     let fileName = '';
     if (activeTab === 'DAILY') fileName = `Collection_Report_${fromDate}_to_${toDate}.pdf`;
     else if (activeTab === 'UNPAID') fileName = `Unpaid_List_${unpaidMonth}.pdf`;
     else if (activeTab === 'BILLING') fileName = `Demand_Notice_${billingMonth}.pdf`;
+    else if (activeTab === 'BANK_TRANSFER') fileName = `Bank_Transfer_Report_${bankTransferMonth}.pdf`;
     else fileName = `Audit_Report_${auditYear}.pdf`;
     
     // Explicitly target the printable-section container
@@ -584,6 +606,105 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
       </div>
     );
   };
+const renderBankTransferReport = () => {
+    const totalBankTransfers = bankTransferData.reduce((sum, t) => sum + t.amount, 0);
+
+    return (
+      <div className="space-y-6">
+         <div className="flex justify-between items-center no-print">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">Bank Transfer Report</h2>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-widest">Month-wise Details</p>
+            </div>
+            <button 
+              onClick={handleDownload} 
+              className="flex items-center space-x-2 text-white bg-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 shadow-md transition-colors"
+            >
+              <Download size={14} />
+              <span className="hidden sm:inline">Export PDF</span>
+            </button>
+          </div>
+
+          <div className="hidden print:block text-center mb-6 border-b-2 border-black pb-4">
+              <h1 className="text-2xl font-black text-black mb-1 uppercase tracking-tight">CONTINENTAL HEIGHTS B WING</h1>
+              <h2 className="text-lg font-bold text-black uppercase">
+                Bank Transfer Report
+              </h2>
+              <p className="text-sm text-black font-medium">
+                Month: {new Date(bankTransferMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+              </p>
+          </div>
+
+          {/* MONTH PICKER */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between no-print">
+              <button onClick={handlePrevBankTransferMonth} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                  <ChevronLeft size={20} className="text-slate-600 dark:text-slate-300" />
+              </button>
+              <div className="text-center">
+                  <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block">Month</span>
+                  <span className="font-bold text-slate-800 dark:text-white uppercase">{new Date(bankTransferMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>
+              </div>
+              <button onClick={handleNextBankTransferMonth} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                  <ChevronRight size={20} className="text-slate-600 dark:text-slate-300" />
+              </button>
+          </div>
+          
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center no-print">
+               <span className="text-xs text-slate-400 font-bold uppercase">Total Bank Receipt</span>
+               <span className="text-xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">{formatCurrency(totalBankTransfers)}</span>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:shadow-none print:rounded-none">
+               <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
+                  <div className="w-12 shrink-0">Recpt</div>
+                  <div className="w-20 shrink-0">Date</div>
+                  <div className="w-16 shrink-0">Flat</div>
+                  <div className="flex-1 min-w-0 px-2">Owner</div>
+                  <div className="w-24 shrink-0 text-right">Amount</div>
+               </div>
+               
+               <div className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
+                  {bankTransferData.length === 0 ? (
+                     <div className="p-12 text-center text-slate-400 dark:text-slate-500 text-sm font-medium">No bank transfers found for this month.</div>
+                  ) : bankTransferData.map((t) => (
+                    <div key={`${t.receiptNo}-${t.date}`} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2 cursor-pointer" onClick={() => onEditTransaction && onEditTransaction(t)}>
+                      <div className="w-12 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
+                      <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatDate(t.date).split(',')[0]}</div>
+                      <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
+                      <div className="flex-1 min-w-0 px-2 font-medium text-slate-600 dark:text-slate-300 print:text-black truncate">
+                        {t.ownerName}
+                      </div>
+                      <div className="w-24 shrink-0 text-right font-black text-indigo-600 dark:text-indigo-400 print:text-black">
+                         {formatCurrency(t.amount)}
+                      </div>
+                    </div>
+                  ))}
+               </div>
+               
+               {bankTransferData.length > 0 && (
+                 <div className="hidden print:flex items-center p-4 bg-slate-100 border-t-2 border-black font-black uppercase text-sm">
+                   <div className="flex-1 text-right pr-4 tracking-widest">Total Transfer</div>
+                   <div className="w-32 text-right">{formatCurrency(totalBankTransfers)}</div>
+                 </div>
+               )}
+          </div>
+          
+           <div className="hidden print:block mt-20">
+               <div className="flex justify-between px-10">
+                   <div className="text-center">
+                       <div className="w-32 border-t border-black mb-1"></div>
+                       <p className="text-xs font-bold uppercase">Treasurer Signature</p>
+                   </div>
+                   <div className="text-center">
+                       <div className="w-32 border-t border-black mb-1"></div>
+                       <p className="text-xs font-bold uppercase">Chairman Signature</p>
+                   </div>
+               </div>
+               <p className="text-center text-[8px] text-slate-500 mt-10">Document generated by Continental Heights B Wing Manager App on {new Date().toLocaleString()}</p>
+           </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
@@ -605,6 +726,10 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                 <FileText size={14} className="mr-2 hidden sm:inline" />
                 Audit
              </button>
+             <button onClick={() => setActiveTab('BANK_TRANSFER')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'BANK_TRANSFER' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                <FileText size={14} className="mr-2 hidden sm:inline" />
+                Bank Transfer
+             </button>
           </div>
        </div>
        <div className="flex-1 overflow-y-auto p-4" id="printable-section">
@@ -612,6 +737,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
           {activeTab === 'UNPAID' && renderUnpaidList()}
           {activeTab === 'BILLING' && renderBillingReport()}
           {activeTab === 'AUDIT' && renderAuditReport()}
+          {activeTab === 'BANK_TRANSFER' && renderBankTransferReport()}
        </div>
     </div>
   );

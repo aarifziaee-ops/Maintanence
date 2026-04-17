@@ -78,6 +78,7 @@ export interface AppState {
   hallBookings: HallBooking[];
   vendors: Vendor[];
   lastReceiptNo: number;
+  lastUpdated?: number;
   theme?: 'LIGHT' | 'DARK';
   aiInsight?: {
     text: string;

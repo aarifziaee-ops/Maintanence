@@ -311,6 +311,7 @@ export const loadData = (): AppState => {
  */
 export const saveData = (state: AppState) => {
   try {
+    state.lastUpdated = Date.now();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     
     // Automatic Cloud Sync Logic
@@ -681,10 +682,39 @@ export const getCloudConfig = (): FirebaseConfig | null => {
 };
 
 export const syncFromCloud = async (): Promise<AppState | null> => {
-  const data = await loadFromCloud();
-  if (data) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    return data;
+  const cloudData = await loadFromCloud();
+  if (cloudData) {
+    const localDataRaw = localStorage.getItem(STORAGE_KEY);
+    if (localDataRaw) {
+      const localData = JSON.parse(localDataRaw) as AppState;
+      
+      const cloudUpdated = cloudData.lastUpdated || 0;
+      const localUpdated = localData.lastUpdated || 0;
+
+      const cloudTotalItems = (cloudData.transactions?.length || 0) + (cloudData.financialRecords?.length || 0);
+      const localTotalItems = (localData.transactions?.length || 0) + (localData.financialRecords?.length || 0);
+
+      // If local is explicitly newer, skip cloud overwrite
+      if (localUpdated > cloudUpdated) {
+         console.log("Local data is newer based on timestamp, skipping cloud overwrite, uploading instead.");
+         saveToCloud(localData); // Background sync to cloud
+         return localData; 
+      }
+      
+      // If timestamps are missing or equal, compare item counts as a heuristic fallback
+      if (localUpdated >= cloudUpdated && localTotalItems >= cloudTotalItems) {
+         console.log("Local data has equal or more records, skipping cloud overwrite");
+         // Only upload if it strictly has more items, otherwise it might just be the same data
+         if (localTotalItems > cloudTotalItems) {
+             saveToCloud(localData);
+         }
+         return localData;
+      }
+    }
+
+    // Overwrite local data since cloud is newer or local didn't exist
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+    return cloudData;
   }
   return null;
 };

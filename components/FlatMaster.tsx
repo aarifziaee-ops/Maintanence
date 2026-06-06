@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { AppState, Flat } from '../types';
 import { updateFlatDetails } from '../services/storageService';
-import { Search, Building, User, Phone, Save, ArrowLeft, Bike, Car, Home, LayoutDashboard, List, PieChart as PieIcon } from 'lucide-react';
+import { Search, Building, User, Phone, Save, ArrowLeft, Bike, Car, Home, LayoutDashboard, List, PieChart as PieIcon, Edit2 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 interface FlatMasterProps {
@@ -11,7 +11,7 @@ interface FlatMasterProps {
 }
 
 const FlatMaster: React.FC<FlatMasterProps> = ({ state, refreshState }) => {
-  const [viewMode, setViewMode] = useState<'DASHBOARD' | 'LIST'>('DASHBOARD');
+  const [viewMode, setViewMode] = useState<'DASHBOARD' | 'LIST'>('LIST');
   const [selectedFlatId, setSelectedFlatId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -68,10 +68,16 @@ const FlatMaster: React.FC<FlatMasterProps> = ({ state, refreshState }) => {
   ];
 
   const filteredFlats = useMemo(() => {
-    return state.flats.filter(flat => 
-      flat.flatNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      flat.ownerName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    return state.flats.filter(flat => {
+      const search = searchTerm.toLowerCase();
+      return (
+        flat.flatNumber.toLowerCase().includes(search) || 
+        flat.ownerName?.toLowerCase().includes(search) ||
+        flat.mobile?.toLowerCase().includes(search) ||
+        flat.tenantName?.toLowerCase().includes(search) ||
+        flat.tenantMobile?.toLowerCase().includes(search)
+      );
+    });
   }, [state.flats, searchTerm]);
 
   const handleSelectFlat = (flat: Flat) => {
@@ -223,33 +229,109 @@ const FlatMaster: React.FC<FlatMasterProps> = ({ state, refreshState }) => {
             <Search className="absolute left-3 top-3 text-slate-400" size={20} />
             <input
               type="text"
-              placeholder="Search flat number or owner..."
-              className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400"
+              placeholder="Search by flat, name, or phone..."
+              className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
        </div>
        
-       <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24">
-          {filteredFlats.map(flat => (
-            <button
-              key={flat.id}
-              onClick={() => handleSelectFlat(flat)}
-              className="w-full bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-800 transition-colors"
-            >
-              <div className="flex items-center space-x-4">
-                 <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center font-bold text-xs">
-                    {flat.flatNumber.split('-')[1]}
+       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+          <div className="flex justify-between items-center mb-2 px-1">
+             <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400">Master Directory ({filteredFlats.length})</h3>
+          </div>
+          {filteredFlats.length === 0 ? (
+             <div className="text-center p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <Search size={40} className="mx-auto text-slate-300 mb-4" />
+                <p className="text-slate-500 font-medium">No records found matching "{searchTerm}"</p>
+             </div>
+          ) : (
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+               {filteredFlats.map(flat => (
+                 <div
+                   key={flat.id}
+                   className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col group cursor-pointer"
+                   onClick={() => handleSelectFlat(flat)}
+                 >
+                    {/* Card Header (Flat & Status) */}
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                       <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 rounded-xl flex items-center justify-center font-black shadow-sm">
+                             {flat.flatNumber.split('-')[1] || flat.flatNumber}
+                          </div>
+                          <div>
+                             <h4 className="font-black text-slate-800 dark:text-white text-lg leading-tight">{flat.flatNumber}</h4>
+                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:block">Continental Heights</p>
+                          </div>
+                       </div>
+                       <div>
+                          {flat.isRented ? (
+                             <span className="bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 text-xs font-black px-3 py-1.5 rounded-full border border-orange-200 dark:border-orange-800/50 shadow-sm flex items-center">
+                               <Home size={12} className="mr-1.5" /> Rented
+                             </span>
+                          ) : (
+                             <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-black px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800/50 shadow-sm flex items-center">
+                               <User size={12} className="mr-1.5" /> Owner
+                             </span>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* Card Body (Owner & Tenant Info) */}
+                    <div className="p-4 space-y-4 flex-1">
+                       <div className="flex items-start space-x-3">
+                          <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg shrink-0 mt-0.5">
+                             <User size={16} className="text-slate-400 dark:text-slate-500" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                             <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Owner</p>
+                             <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{flat.ownerName || 'Not Specified'}</p>
+                             {flat.mobile ? (
+                                <div className="flex items-center text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 hover:text-blue-600 transition-colors" onClick={(e) => { e.stopPropagation(); window.open(`tel:${flat.mobile}`); }}>
+                                   <Phone size={12} className="mr-1.5" />
+                                   {flat.mobile}
+                                </div>
+                             ) : (
+                                <div className="flex items-center text-xs font-medium text-slate-400 mt-1 italic">No Number</div>
+                             )}
+                          </div>
+                       </div>
+
+                       {flat.isRented && (
+                          <>
+                             <div className="h-px bg-slate-100 dark:bg-slate-800 w-full" />
+                             <div className="flex items-start space-x-3">
+                                <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg shrink-0 mt-0.5">
+                                   <User size={16} className="text-orange-400" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                   <p className="text-xs font-bold text-orange-500/70 dark:text-orange-400/70 uppercase tracking-wider mb-0.5">Tenant</p>
+                                   <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{flat.tenantName || 'Not Specified'}</p>
+                                   {flat.tenantMobile ? (
+                                      <div className="flex items-center text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 hover:text-blue-600 transition-colors" onClick={(e) => { e.stopPropagation(); window.open(`tel:${flat.tenantMobile}`); }}>
+                                         <Phone size={12} className="mr-1.5" />
+                                         {flat.tenantMobile}
+                                      </div>
+                                   ) : (
+                                      <div className="flex items-center text-xs font-medium text-slate-400 mt-1 italic">No Number</div>
+                                   )}
+                                </div>
+                             </div>
+                          </>
+                       )}
+                    </div>
+
+                    {/* Card Footer */}
+                    <div className="px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                       <span className="text-[10px] font-bold text-blue-500 uppercase flex items-center">
+                          Tap to Edit <Edit2 size={10} className="ml-1" />
+                       </span>
+                    </div>
                  </div>
-                 <div className="text-left">
-                    <p className="font-bold text-slate-800 dark:text-white">{flat.flatNumber}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 truncate w-40">{flat.ownerName}</p>
-                 </div>
-              </div>
-              {flat.isRented && <span className="bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-[10px] font-bold px-2 py-1 rounded-full">RENTED</span>}
-            </button>
-          ))}
+               ))}
+             </div>
+          )}
        </div>
     </div>
   );

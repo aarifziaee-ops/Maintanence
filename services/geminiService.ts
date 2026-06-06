@@ -1,7 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { AppState, PaymentStatus } from "../types";
-import { MAINTENANCE_AMOUNT } from "../constants";
 
 const getSystemInstruction = () => {
   return `You are a financial assistant for a Building Society Manager. 
@@ -30,7 +29,7 @@ export const generateFinancialInsight = async (state: AppState): Promise<string>
     Context:
     Building: Continental Heights B Wing.
     Total Flats: ${state.flats.length}
-    Maintenance Amount: ${MAINTENANCE_AMOUNT}
+    Maintenance Amount: 2500 (Owner-occupied), 2800 (Rented)
     
     Current Status:
     Paid: ${paidCount}

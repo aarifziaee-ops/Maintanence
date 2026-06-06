@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
 import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth } from '../services/storageService';
-import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString } from '../utils/helpers';
+import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString, calculateMaintenanceForMonth } from '../utils/helpers';
 import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
@@ -27,7 +27,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   const [amount, setAmount] = useState<number>(MAINTENANCE_AMOUNT);
   const [paymentDate, setPaymentDate] = useState<string>(getTodayDateString());
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
-  
+  const [manualReceiptNo, setManualReceiptNo] = useState<string>('');
+  const [remarks, setRemarks] = useState<string>('');
+
   // Preview Receipt No
   const [previewReceiptNo, setPreviewReceiptNo] = useState<number>(1);
 
@@ -45,6 +47,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     mobile: string;
     paymentMode: 'CASH' | 'BANK';
     isDuplicate?: boolean;
+    remarks?: string;
   } | null>(null);
 
   // Update preview receipt number whenever paymentDate changes
@@ -61,6 +64,18 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
       startEdit(initialTransactionToEdit);
     }
   }, [initialTransactionToEdit]);
+
+  // Auto-update amount when selected flat or date changes (only if it's a new payment)
+  useEffect(() => {
+    if (selectedFlatId && !editingTx && paymentDate) {
+      const flat = state.flats.find(f => f.id === selectedFlatId);
+      if (flat) {
+         const targetYear = parseInt(paymentDate.split('-')[0]);
+         const targetMonth = parseInt(paymentDate.split('-')[1]);
+         setAmount(calculateMaintenanceForMonth(flat, targetYear, targetMonth));
+      }
+    }
+  }, [selectedFlatId, paymentDate, state.flats, editingTx]);
 
   // --- Search Logic ---
   const filteredFlats = useMemo(() => {
@@ -128,7 +143,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         cleanMobile,
         amount,
         paymentDate,
-        paymentMode
+        paymentMode,
+        manualReceiptNo ? parseInt(manualReceiptNo, 10) : undefined,
+        remarks || undefined
       );
       
       refreshState(newState);
@@ -140,7 +157,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         flat: transaction.flatNumber,
         mobile: transaction.mobile,
         paymentMode: transaction.paymentMode || 'CASH',
-        isDuplicate: false
+        isDuplicate: false,
+        remarks: transaction.remarks
       });
       setStep(3);
     } catch (error) {
@@ -157,7 +175,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
       flat: tx.flatNumber,
       mobile: tx.mobile,
       paymentMode: tx.paymentMode || 'CASH',
-      isDuplicate: true
+      isDuplicate: true,
+      remarks: tx.remarks
     });
     setStep(3);
   };
@@ -177,7 +196,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         date: paymentDate,
         flatId: selectedFlatId,
         flatNumber: flat?.flatNumber || editingTx.flatNumber,
-        paymentMode
+        paymentMode,
+        remarks: remarks || undefined
       });
       refreshState(newState);
       
@@ -189,7 +209,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
         flat: flat?.flatNumber || editingTx.flatNumber,
         mobile: cleanMobile,
         paymentMode,
-        isDuplicate: true
+        isDuplicate: true,
+        remarks: remarks || undefined
       });
       setStep(3);
       setEditingTx(null);
@@ -213,6 +234,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     setMobile(tx.mobile);
     setAmount(tx.amount);
     setPaymentMode(tx.paymentMode || 'CASH');
+    setRemarks(tx.remarks || '');
+    setManualReceiptNo('');
     
     let dateVal = getTodayDateString();
     if (tx.date) {
@@ -236,6 +259,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     setAmount(MAINTENANCE_AMOUNT);
     setPaymentDate(getTodayDateString());
     setPaymentMode('CASH');
+    setRemarks('');
+    setManualReceiptNo('');
     setGeneratedReceipt(null);
     setEditingTx(null);
     setIsChangingFlat(false);
@@ -376,6 +401,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                   <div className="text-sm text-slate-500 dark:text-slate-400 mb-4 space-y-1">
                     <p>{tx.ownerName}</p>
                     <p className="text-xs">{formatDate(tx.date)}</p>
+                    {tx.remarks && <p className="text-xs italic">Remarks: {tx.remarks}</p>}
                   </div>
 
                   <div className="flex space-x-3 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -509,6 +535,30 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Manual Receipt No. (Optional)</label>
+                <input
+                  type="number"
+                  value={manualReceiptNo}
+                  onChange={(e) => setManualReceiptNo(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  placeholder={editingTx ? editingTx.receiptNo.toString() : "Blank = Auto"}
+                  disabled={!!editingTx}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Period / Remarks</label>
+                <input
+                  type="text"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  placeholder="e.g. May-June 2026"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Payment Mode</label>
               <div className="flex space-x-4">
@@ -608,6 +658,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                       <span className="text-slate-500 font-medium">Received From</span>
                       <span className="font-bold text-slate-900 text-right w-1/2 leading-tight">{generatedReceipt.name}</span>
                   </div>
+                  {generatedReceipt.remarks && (
+                    <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 pt-2">
+                        <span className="text-slate-500 font-medium">Remarks</span>
+                        <span className="font-bold text-slate-900 text-right w-1/2 leading-tight">{generatedReceipt.remarks}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 pt-2">
                       <span className="text-slate-500 font-medium">Payment Mode</span>
                       <span className="font-bold text-slate-900">{generatedReceipt.paymentMode === 'BANK' ? 'BANK TRF' : 'CASH'}</span>

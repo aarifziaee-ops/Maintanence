@@ -1,6 +1,6 @@
 
 import { AppState, Flat, PaymentStatus, Transaction, FinancialRecord, HallBooking } from '../types';
-import { STORAGE_KEY, TOTAL_FLATS, MAINTENANCE_AMOUNT } from '../constants';
+import { STORAGE_KEY, TOTAL_FLATS } from '../constants';
 import * as XLSX from 'xlsx';
 import { saveToCloud, loadFromCloud, initFirebase, isCloudEnabled, FirebaseConfig } from './firebaseService';
 
@@ -394,7 +394,7 @@ export const getNextReceiptNoForMonth = (state: AppState, dateString: string): n
  * Processes a maintenance payment for a flat.
  * Receipt Numbers reset every month before March 2026, then continue globally.
  */
-export const processPayment = (state: AppState, flatId: string, ownerName: string, mobile: string, amount: number, date: string, paymentMode: 'CASH' | 'BANK' = 'CASH') => {
+export const processPayment = (state: AppState, flatId: string, ownerName: string, mobile: string, amount: number, date: string, paymentMode: 'CASH' | 'BANK' = 'CASH', manualReceiptNo?: number, remarks?: string) => {
   const newState = { 
     ...state,
     flats: [...state.flats],
@@ -404,8 +404,16 @@ export const processPayment = (state: AppState, flatId: string, ownerName: strin
   const flatIndex = newState.flats.findIndex(f => f.id === flatId);
   if (flatIndex === -1) throw new Error("Flat not found");
 
-  // Calculate receipt number based on the month
-  const receiptNo = getNextReceiptNoForMonth(state, date);
+  let receiptNo: number;
+  if (manualReceiptNo) {
+    if (newState.transactions.some(t => t.receiptNo === manualReceiptNo)) {
+      throw new Error(`Receipt number ${manualReceiptNo} already exists.`);
+    }
+    receiptNo = manualReceiptNo;
+  } else {
+    // Calculate receipt number based on the month
+    receiptNo = getNextReceiptNoForMonth(state, date);
+  }
 
   const transaction: Transaction = {
     receiptNo,
@@ -416,7 +424,8 @@ export const processPayment = (state: AppState, flatId: string, ownerName: strin
     ownerName,
     amount,
     mobile,
-    paymentMode
+    paymentMode,
+    remarks
   };
 
   // Update flat details if changed

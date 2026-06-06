@@ -1,5 +1,29 @@
 
 import { BUILDING_NAME, MAINTENANCE_AMOUNT } from '../constants';
+import { Flat } from '../types';
+
+export const calculateMaintenanceForMonth = (flat: { isRented?: boolean }, year: number, month: number): number => {
+  if (year < 2026 || (year === 2026 && month < 4)) {
+    return 2000;
+  }
+  return flat.isRented ? 2800 : 2500;
+};
+
+export const calculateExpectedTotalBefore = (flat: { isRented?: boolean }, epochYear: number, epochMonth: number, targetYear: number, targetMonth: number): number => {
+  let total = 0;
+  let currYear = epochYear;
+  let currMonth = epochMonth;
+  
+  while (currYear < targetYear || (currYear === targetYear && currMonth < targetMonth)) {
+    total += calculateMaintenanceForMonth(flat, currYear, currMonth);
+    currMonth++;
+    if (currMonth > 12) {
+      currMonth = 1;
+      currYear++;
+    }
+  }
+  return total;
+};
 
 export const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-IN', {
@@ -91,10 +115,10 @@ export const generateWhatsAppLink = (
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
 
-export const generateReminderLink = (mobile: string, name: string, flat: string): string => {
+export const generateReminderLink = (mobile: string, name: string, flat: string, amount: number = MAINTENANCE_AMOUNT): string => {
   const cleanMobile = getCleanLocalMobile(mobile);
   if (!cleanMobile) return '#';
-  const message = `Dear ${name || 'Member'},\n\nFlat: *${flat}*\n\nYour maintenance payment for *${BUILDING_NAME}* is pending.\nAmount: *Rs. ${MAINTENANCE_AMOUNT}*\n\nPlease pay at your earliest convenience.\n\nThank you.`;
+  const message = `Dear ${name || 'Member'},\n\nFlat: *${flat}*\n\nYour maintenance payment for *${BUILDING_NAME}* is pending.\nAmount: *Rs. ${amount}*\n\nPlease pay at your earliest convenience.\n\nThank you.`;
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
 

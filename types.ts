@@ -32,6 +32,7 @@ export interface Transaction {
   amount: number;
   mobile: string;
   paymentMode?: 'CASH' | 'BANK';
+  remarks?: string;
 }
 
 export interface Vendor {

@@ -2,9 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import { AppState } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { formatCurrency } from '../utils/helpers';
-import { Users, IndianRupee, AlertCircle, Percent, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, Calendar, Wallet } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
+import { formatCurrency, calculateMaintenanceForMonth } from '../utils/helpers';
+import { Users, IndianRupee, AlertCircle, Percent, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, Calendar, Wallet } from 'lucide-react';
 
 interface DashboardProps {
   state: AppState;
@@ -36,6 +36,15 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     const paidCount = paidFlatIds.size;
     const unpaidCount = Math.max(0, state.flats.length - paidCount);
     
+    const targetYear = parseInt(selectedMonth.split('-')[0]);
+    const targetMonth = parseInt(selectedMonth.split('-')[1]);
+    
+    // Calculate Outstanding Amount dynamically
+    const unpaidFlats = state.flats.filter(f => !paidFlatIds.has(f.id));
+    const outstandingAmount = unpaidFlats.reduce((acc, flat) => {
+      return acc + calculateMaintenanceForMonth(flat, targetYear, targetMonth);
+    }, 0);
+    
     // 3. Total collected in this month
     const totalCollected = monthTransactions.reduce((acc, curr) => acc + curr.amount, 0);
     
@@ -47,6 +56,12 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
     const bankAmount = bankTransactions.reduce((acc, curr) => acc + curr.amount, 0);
     const cashCount = cashTransactions.length;
     const bankCount = bankTransactions.length;
+
+    // Tenant / Owner Split
+    const totalTenants = state.flats.filter(f => f.isRented).length;
+    const totalOwners = state.flats.filter(f => !f.isRented).length;
+    const paidTenants = state.flats.filter(f => f.isRented && paidFlatIds.has(f.id)).length;
+    const paidOwners = state.flats.filter(f => !f.isRented && paidFlatIds.has(f.id)).length;
     
     // 4. Today's collection (only if today is in the selected month)
     const todayStr = new Date().toISOString().split('T')[0];
@@ -56,8 +71,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
     const percentPaid = state.flats.length > 0 ? Math.round((paidCount / state.flats.length) * 100) : 0;
     
-    // 5. Calculate Outstanding Amount
-    const outstandingAmount = unpaidCount * MAINTENANCE_AMOUNT;
+    // 5. Calculate Outstanding Amount (already done above)
 
     return {
       paidCount,
@@ -70,7 +84,11 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       cashAmount,
       bankAmount,
       cashCount,
-      bankCount
+      bankCount,
+      totalTenants,
+      totalOwners,
+      paidTenants,
+      paidOwners
     };
   }, [state.flats, state.transactions, selectedMonth]);
 
@@ -205,6 +223,29 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         </div>
       </div>
 
+      {/* Tenant / Owner Payment Split */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+            <div className="flex items-center justify-center space-x-1 text-slate-500 dark:text-slate-400 mb-1">
+              <Users size={14} className="text-orange-500" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Rental Paid</span>
+            </div>
+            <p className="text-xl font-bold text-slate-800 dark:text-white leading-tight">
+              {stats.paidTenants} <span className="text-sm text-slate-400 font-normal">/ {stats.totalTenants}</span>
+            </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+            <div className="flex items-center justify-center space-x-1 text-slate-500 dark:text-slate-400 mb-1">
+              <Users size={14} className="text-purple-500" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Owners Paid</span>
+            </div>
+            <p className="text-xl font-bold text-slate-800 dark:text-white leading-tight">
+              {stats.paidOwners} <span className="text-sm text-slate-400 font-normal">/ {stats.totalOwners}</span>
+            </p>
+        </div>
+      </div>
+
       {/* Charts Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -254,7 +295,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                {formatCurrency(stats.outstandingAmount)}
             </p>
             <p className="text-[10px] text-slate-400 mt-1 font-medium">
-               {stats.unpaidCount} flats pending x {formatCurrency(MAINTENANCE_AMOUNT)}
+               {stats.unpaidCount} flats pending payment
             </p>
           </div>
            <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-full text-red-500 dark:text-red-400">

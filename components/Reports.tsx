@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, downloadPDF } from '../utils/helpers';
+import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, downloadPDF, calculateExpectedTotalBefore, calculateMaintenanceForMonth } from '../utils/helpers';
 import { Clock, AlertCircle, Share2, Edit2, Calendar, Download, MessageCircle, FileText, CheckCircle2, CalendarDays, ChevronLeft, ChevronRight, Copy, FileSpreadsheet } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
@@ -98,20 +98,18 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     const selYear = parseInt(selYearStr);
     const selMonth = parseInt(selMonthStr);
     
-    // Number of months passed from Jan 2026 up to (but not including) the selected billing month
-    let monthsPassed = (selYear - epochYear) * 12 + (selMonth - epochMonth);
-    if (monthsPassed < 0) monthsPassed = 0;
-    
-    const expectedTotalBefore = monthsPassed * MAINTENANCE_AMOUNT;
-    
     return state.flats.map(flat => {
+      // Number of months passed from Jan 2026 up to (but not including) the selected billing month
+      // Use the utility to calculate taking historical rates and rent status into account.
+      const expectedTotalBefore = calculateExpectedTotalBefore(flat, epochYear, epochMonth, selYear, selMonth);
+      
       // Calculate total paid by this flat BEFORE the selected billing month
       const totalPaidBefore = state.transactions
         .filter(t => t.flatId === flat.id && t.date.slice(0, 7) < billingMonth)
         .reduce((sum, t) => sum + t.amount, 0);
         
       const previousArrears = expectedTotalBefore - totalPaidBefore;
-      const currentMonthDue = MAINTENANCE_AMOUNT;
+      const currentMonthDue = calculateMaintenanceForMonth(flat, selYear, selMonth);
       const totalPayable = previousArrears + currentMonthDue;
       
       return {
@@ -257,8 +255,8 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                 <div className="w-10 shrink-0">No</div>
                 <div className="w-20 shrink-0">Date</div>
                 <div className="w-16 shrink-0">Flat</div>
-                <div className="flex-1 min-w-0 px-2">Owner</div>
-                <div className="w-20 shrink-0 text-right">Status</div>
+                <div className="flex-1 min-w-0 px-2">Owner / Remarks</div>
+                <div className="w-20 shrink-0 text-right">Amount</div>
                 <div className="w-10 shrink-0 text-center no-print"></div>
              </div>
              
@@ -270,9 +268,12 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                     <div className="w-10 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
                     <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatDate(t.date).split(',')[0]}</div>
                     <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
-                    <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{t.ownerName}</div>
-                    <div className="w-20 shrink-0 text-right">
-                        <span className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider print:border print:border-black print:text-black">PAID</span>
+                    <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">
+                      {t.ownerName}
+                      {t.remarks && <div className="text-[10px] text-slate-400 font-normal mt-0.5">{t.remarks}</div>}
+                    </div>
+                    <div className="w-20 shrink-0 text-right font-black text-slate-900 dark:text-white print:text-black">
+                        {formatCurrency(t.amount)}
                     </div>
                     <div className="w-20 shrink-0 flex justify-end space-x-1 no-print">
                         {onEditTransaction && (
@@ -375,7 +376,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
                <div className="w-10 shrink-0 flex justify-center no-print">
                    {flat.mobile && (
-                     <a href={generateReminderLink(flat.mobile, flat.ownerName, flat.flatNumber)} target="_blank" rel="noreferrer" className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" title="Send WhatsApp Reminder">
+                     <a href={generateReminderLink(flat.mobile, flat.ownerName, flat.flatNumber, calculateMaintenanceForMonth(flat, parseInt(unpaidMonth.split('-')[0]), parseInt(unpaidMonth.split('-')[1])))} target="_blank" rel="noreferrer" className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" title="Send WhatsApp Reminder">
                         <MessageCircle size={18} />
                      </a>
                    )}

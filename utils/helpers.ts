@@ -3,6 +3,9 @@ import { BUILDING_NAME, MAINTENANCE_AMOUNT } from '../constants';
 import { Flat } from '../types';
 
 export const calculateMaintenanceForMonth = (flat: { isRented?: boolean }, year: number, month: number): number => {
+  if (year === 2025 && month === 11) {
+    return 500;
+  }
   if (year < 2026 || (year === 2026 && month < 4)) {
     return 2000;
   }
@@ -64,6 +67,67 @@ export const formatMonthYear = (dateString: string): string => {
   }
 };
 
+const MONTHS_LONG = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const MONTHS_SHORT = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+export const getTransactionsForMonth = (transactions: any[], targetMonthStr: string): any[] => {
+  // targetMonthStr is YYYY-MM
+  const d = new Date(targetMonthStr + '-01');
+  const targetMonthIndex = d.getMonth();
+  
+  const targetMonthLong = MONTHS_LONG[targetMonthIndex];
+  const targetMonthShort = MONTHS_SHORT[targetMonthIndex];
+  
+  const targetMonthNumStr = (targetMonthIndex + 1).toString().padStart(2, '0');
+  const targetYearStr = d.getFullYear().toString();
+  const targetShortYear = targetYearStr.slice(-2);
+  const targetMonthRegex = new RegExp(`\\b(${targetMonthLong}|${targetMonthShort})\\b`, 'i');
+
+  return transactions.filter(t => {
+    let explicitlyMatchesTarget = false;
+    let explicitlyMatchesOther = false;
+
+    if (t.remarks) {
+       const rm = t.remarks.toLowerCase();
+       
+       if (rm.includes(targetMonthLong) || targetMonthRegex.test(rm) || 
+           rm.includes(`${targetMonthShort}${targetYearStr}`) || rm.includes(`${targetMonthShort}${targetShortYear}`) ||
+           rm.includes(targetMonthStr) || rm.includes(`${targetMonthNumStr}/${targetYearStr}`) || 
+           rm.includes(`${targetMonthNumStr}-${targetYearStr}`) || rm.includes(`${targetMonthNumStr}/${targetShortYear}`) || 
+           rm.includes(`${targetMonthNumStr}-${targetShortYear}`)) {
+           explicitlyMatchesTarget = true;
+       }
+       
+       if (!explicitlyMatchesTarget) {
+          for (let i = 0; i < 12; i++) {
+             if (i === targetMonthIndex) continue;
+             const otherM = MONTHS_LONG[i];
+             const otherS = MONTHS_SHORT[i];
+             const otherRegex = new RegExp(`\\b(${otherM}|${otherS})\\b`, 'i');
+             const otherNumStr = (i + 1).toString().padStart(2, '0');
+             
+             if (rm.includes(otherM) || otherRegex.test(rm) || 
+                 rm.includes(`${otherS}${targetYearStr}`) || rm.includes(`${otherS}${targetShortYear}`) ||
+                 rm.includes(`${targetYearStr}-${otherNumStr}`) || rm.includes(`${otherNumStr}/${targetYearStr}`) || 
+                 rm.includes(`${otherNumStr}-${targetYearStr}`) || rm.includes(`${otherNumStr}/${targetShortYear}`) || 
+                 rm.includes(`${otherNumStr}-${targetShortYear}`)) {
+                 explicitlyMatchesOther = true;
+                 break;
+             }
+          }
+       }
+    }
+
+    if (explicitlyMatchesTarget) return true;
+    if (explicitlyMatchesOther) return false;
+    
+    // Default to transaction date if no month specified in remarks
+    if (t.date && t.date.startsWith(targetMonthStr)) return true;
+
+    return false;
+  });
+};
+
 export const getTodayDateString = (): string => {
   const d = new Date();
   const year = d.getFullYear();
@@ -115,6 +179,65 @@ export const generateWhatsAppLink = (
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
 
+
+export const getOutstandingBreakdown = (
+  flat: { id: string, isRented?: boolean }, 
+  transactions: any[], 
+  epochYear: number, 
+  epochMonth: number, 
+  targetYear: number, 
+  targetMonth: number
+): { monthName: string, amount: number, year: number }[] => {
+  let currYear = epochYear;
+  let currMonth = epochMonth;
+  const breakdown: { monthName: string, amount: number, year: number }[] = [];
+  
+  const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  
+  while (currYear < targetYear || (currYear === targetYear && currMonth < targetMonth)) {
+    // Format YYYY-MM
+    const monthStr = `${currYear}-${currMonth.toString().padStart(2, '0')}`;
+    const monthTransactions = getTransactionsForMonth(transactions, monthStr);
+    
+    // If they have ANY transaction for this month, consider it paid.
+    // This perfectly matches the logic of the "Pending" page month-wise.
+    const hasPaid = monthTransactions.some(t => t.flatId === flat.id);
+    
+    if (!hasPaid) {
+      const monthlyDue = calculateMaintenanceForMonth(flat, currYear, currMonth);
+      breakdown.push({
+        monthName: MONTHS_LONG[currMonth - 1],
+        amount: monthlyDue,
+        year: currYear
+      });
+    }
+    
+    currMonth++;
+    if (currMonth > 12) {
+      currMonth = 1;
+      currYear++;
+    }
+  }
+  
+  return breakdown;
+};
+
+export const generateDetailedReminderLink = (
+  mobile: string, 
+  name: string, 
+  flat: string, 
+  totalAmount: number,
+  breakdown: { monthName: string, amount: number, year: number }[]
+): string => {
+  const cleanMobile = getCleanLocalMobile(mobile);
+  if (!cleanMobile) return '#';
+  
+  let breakdownText = breakdown.map(b => `${b.monthName} ${b.amount}`).join('\n');
+  
+  const message = `Dear ${name || 'Member'},\n\nFlat: *${flat}*\n\nYour maintenance payment for *Continental Heights B Wing* is pending.\n\nOutstanding Breakdown:\n${breakdownText}\n\nTotal Amount: *Rs. ${totalAmount}*\n\nPlease pay at your earliest convenience.\n\nThank you.`;
+  return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
+};
+
 export const generateReminderLink = (mobile: string, name: string, flat: string, amount: number = MAINTENANCE_AMOUNT): string => {
   const cleanMobile = getCleanLocalMobile(mobile);
   if (!cleanMobile) return '#';
@@ -129,16 +252,23 @@ export const generateSmartBillLink = (
   monthStr: string, 
   current: number, 
   arrears: number, 
-  total: number
+  total: number,
+  breakdown: { monthName: string, amount: number, year: number }[] = []
 ): string => {
   const cleanMobile = getCleanLocalMobile(mobile);
   if (!cleanMobile) return '#';
   
-  const arrearsText = arrears > 0 
-    ? `\nPrevious Arrears: *Rs. ${arrears}*` 
-    : (arrears < 0 ? `\nAdvance Balance: *Rs. ${Math.abs(arrears)}*` : '');
+  let arrearsText = '';
+  if (arrears > 0 && breakdown.length > 0) {
+     const breakdownText = breakdown.map(b => `${b.monthName} ${b.year} Rs. ${b.amount}`).join(', ');
+     arrearsText = `\nPrevious Arrears: *Rs. ${arrears}* (Pending: ${breakdownText})`;
+  } else if (arrears > 0) {
+     arrearsText = `\nPrevious Arrears: *Rs. ${arrears}*`;
+  } else if (arrears < 0) {
+     arrearsText = `\nAdvance Balance: *Rs. ${Math.abs(arrears)}*`;
+  }
     
-  const message = `*MAINTENANCE BILL*\n${BUILDING_NAME}\n\nDear ${name || 'Member'},\n\nYour maintenance bill for *${monthStr}* has been generated for Flat *${flat}*.\n\nCurrent Month: *Rs. ${current}*${arrearsText}\n*Total Payable: Rs. ${total}*\n\nPlease pay by the 10th of the month to avoid late fees.\n\nThank you.`;
+  const message = `*MAINTENANCE BILL*\n${BUILDING_NAME}\n\nDear ${name || 'Member'},\n\nYour maintenance bill for *${monthStr}* has been generated for Flat *${flat}*.\n\nCurrent Month: *Rs. ${current}*${arrearsText}\n*Total Payable: Rs. ${total}*\n\nPlease pay by the 10th of every month so that we can run the services of the building.\n\nSociety office timing is from 8:00 PM to 10:00 PM.\n\nThank you.`;
   
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };

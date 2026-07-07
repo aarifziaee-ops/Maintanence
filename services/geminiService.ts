@@ -53,7 +53,7 @@ export const generateFinancialInsight = async (state: AppState): Promise<string>
     // Access response.text directly (not a method)
     return response.text || "Unable to generate insight.";
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini API Error:", error instanceof Error ? error.message : "Unknown error");
     return "Unable to analyze data at this moment.";
   }
 };
@@ -94,7 +94,7 @@ export const parseFinancialText = async (text: string): Promise<any> => {
     // Access response.text directly (not a method)
     return JSON.parse(response.text || '{}');
   } catch (error) {
-    console.error("Quick Fill Error:", error);
+    console.error("Quick Fill Error:", error instanceof Error ? error.message : "Unknown error");
     return null;
   }
 };

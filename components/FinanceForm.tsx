@@ -14,7 +14,7 @@ interface FinanceFormProps {
 }
 
 const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose, recordToEdit }) => {
-  const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>('EXPENSE');
+  const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER' | 'VENDOR_BILL'>('EXPENSE');
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
   const [date, setDate] = useState(getTodayDateString());
   const [amount, setAmount] = useState<number | ''>('');
@@ -238,7 +238,7 @@ const FinanceForm: React.FC<FinanceFormProps> = ({ state, refreshState, onClose,
                     <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Category</label>
                     <input 
                       type="text"
-                      required={type !== 'TRANSFER'}
+                      required
                       list="categories"
                       placeholder="Select or type category"
                       value={category}

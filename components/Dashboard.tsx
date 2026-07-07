@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { AppState } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { MAINTENANCE_AMOUNT } from '../constants';
-import { formatCurrency, calculateMaintenanceForMonth } from '../utils/helpers';
+import { formatCurrency, calculateMaintenanceForMonth, getTransactionsForMonth, calculateExpectedTotalBefore, getOutstandingBreakdown } from '../utils/helpers';
 import { Users, IndianRupee, AlertCircle, Percent, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, Calendar, Wallet } from 'lucide-react';
 
 interface DashboardProps {
@@ -28,8 +28,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
   // Derived Stats based on SELECTED MONTH
   const stats = useMemo(() => {
-    // 1. Get transactions only for the selected month
-    const monthTransactions = state.transactions.filter(t => t.date.startsWith(selectedMonth));
+    // 1. Get transactions for the selected month (matches date or remarks)
+    const monthTransactions = getTransactionsForMonth(state.transactions, selectedMonth);
     
     // 2. Determine paid flats for this month
     const paidFlatIds = new Set(monthTransactions.map(t => t.flatId));
@@ -71,8 +71,30 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
     const percentPaid = state.flats.length > 0 ? Math.round((paidCount / state.flats.length) * 100) : 0;
     
-    // 5. Calculate Outstanding Amount (already done above)
-
+    // Recovery calculation
+    const actualTransactionsThisMonth = state.transactions.filter(t => t.date.startsWith(selectedMonth));
+    const totalActualCollectedThisMonth = actualTransactionsThisMonth.reduce((sum, t) => sum + t.amount, 0);
+    
+    let recoveryThisMonth = 0;
+    const EPOCH_YEAR = 2025;
+    const EPOCH_MONTH = 11;
+    state.flats.forEach(flat => {
+        // Use the new breakdown logic for consistency
+        const pastTransactions = state.transactions.filter(t => t.date < selectedMonth + '-01');
+        const breakdown = getOutstandingBreakdown(flat, pastTransactions, EPOCH_YEAR, EPOCH_MONTH, targetYear, targetMonth);
+        const arrears = breakdown.reduce((sum, b) => sum + b.amount, 0);
+        
+        const paidThisMonth = actualTransactionsThisMonth
+            .filter(t => t.flatId === flat.id)
+            .reduce((sum, t) => sum + t.amount, 0);
+            
+        if (paidThisMonth > 0 && arrears > 0) {
+            recoveryThisMonth += Math.min(paidThisMonth, arrears);
+        }
+    });
+    
+    const currentCollectionThisMonth = Math.max(0, totalActualCollectedThisMonth - recoveryThisMonth);
+    
     return {
       paidCount,
       unpaidCount,
@@ -88,7 +110,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       totalTenants,
       totalOwners,
       paidTenants,
-      paidOwners
+      paidOwners,
+      totalActualCollectedThisMonth,
+      recoveryThisMonth,
+      currentCollectionThisMonth
     };
   }, [state.flats, state.transactions, selectedMonth]);
 
@@ -145,23 +170,45 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
       {/* Financial Stats */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Total Collected */}
-        <div className="bg-blue-600 dark:bg-blue-700 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center">
+        {/* Total Actual Collected */}
+        <div className="bg-blue-600 dark:bg-blue-700 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center col-span-2">
             <div className="relative z-10 flex flex-col items-center justify-center">
                 <p className="text-blue-100 text-[10px] font-black uppercase mb-1 flex items-center justify-center">
                     <IndianRupee size={12} className="mr-1" />
-                    Collection ({new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'short' })})
+                    Total Collection Done In {new Date(selectedMonth + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
                 </p>
-                <h2 className="text-2xl font-black truncate tracking-tight">{formatCurrency(stats.totalCollected)}</h2>
+                <h2 className="text-3xl font-black truncate tracking-tight mb-2">{formatCurrency(stats.totalActualCollectedThisMonth)}</h2>
+                <div className="grid grid-cols-2 w-full gap-4 mt-2 pt-3 border-t border-blue-500/50">
+                   <div>
+                       <p className="text-[9px] text-blue-200 uppercase font-black tracking-widest mb-0.5">Current Month</p>
+                       <p className="text-sm font-bold">{formatCurrency(stats.currentCollectionThisMonth)}</p>
+                   </div>
+                   <div>
+                       <p className="text-[9px] text-blue-200 uppercase font-black tracking-widest mb-0.5">Previous Arrears Recovery</p>
+                       <p className="text-sm font-bold">{formatCurrency(stats.recoveryThisMonth)}</p>
+                   </div>
+                </div>
             </div>
-            <div className="absolute -right-6 -top-6 w-20 h-20 bg-blue-500 rounded-full opacity-50 blur-xl"></div>
+            <div className="absolute -right-6 -top-6 w-32 h-32 bg-blue-500 rounded-full opacity-50 blur-3xl"></div>
+        </div>
+        
+        {/* Intended Month Collection */}
+        <div className="bg-indigo-600 dark:bg-indigo-700 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center">
+            <div className="relative z-10 flex flex-col items-center justify-center">
+                <p className="text-indigo-100 text-[10px] font-black uppercase mb-1 flex items-center justify-center">
+                    <CalendarCheck size={12} className="mr-1" />
+                    For {monthLabel}
+                </p>
+                <h2 className="text-2xl font-black tracking-tight">{formatCurrency(stats.totalCollected)}</h2>
+            </div>
+            <div className="absolute -right-6 -top-6 w-20 h-20 bg-indigo-500 rounded-full opacity-50 blur-xl"></div>
         </div>
 
         {/* Today's Collection */}
         <div className="bg-emerald-500 dark:bg-emerald-600 p-5 rounded-2xl shadow-lg text-white relative overflow-hidden text-center">
              <div className="relative z-10 flex flex-col items-center justify-center">
                 <p className="text-emerald-50 text-[10px] font-black uppercase mb-1 flex items-center justify-center">
-                    <CalendarCheck size={12} className="mr-1" />
+                    <IndianRupee size={12} className="mr-1" />
                     Today's Collection
                 </p>
                 <h2 className="text-2xl font-black tracking-tight">{formatCurrency(stats.todayCollected)}</h2>

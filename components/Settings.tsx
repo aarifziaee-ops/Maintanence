@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { AppState } from '../types';
-import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV, createSystemSnapshot, restoreSystemSnapshot, getSnapshotTimestamp, syncFromCloud, importFinancialRecordsFromCSV, clearFinancialRecords, uploadCurrentDataToCloud, saveCloudConfig, getCloudConfig, updateTheme } from '../services/storageService';
+import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV, createSystemSnapshot, restoreSystemSnapshot, getSnapshotTimestamp, syncFromCloud, importFinancialRecordsFromCSV, clearFinancialRecords, uploadCurrentDataToCloud, saveCloudConfig, getCloudConfig, updateTheme, setLastReceiptNo } from '../services/storageService';
 import { downloadSampleCsv, downloadTransactionSampleCsv, downloadFinanceSampleCsv } from '../utils/helpers';
 import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Receipt, RefreshCw, RotateCcw, History, Smartphone, Cloud, Wallet, Trash2, Lock, ArrowUpCircle, X, ChevronDown, ChevronUp, Moon, Sun } from 'lucide-react';
 import { initFirebase } from '../services/firebaseService';
@@ -28,6 +28,22 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   const [apiKey, setApiKey] = useState('');
   const [projectId, setProjectId] = useState('');
   const [authDomain, setAuthDomain] = useState('');
+
+  const [startReceiptNo, setStartReceiptNo] = useState<string>('');
+
+  const handleUpdateStartReceiptNo = () => {
+      const val = parseInt(startReceiptNo);
+      if (!isNaN(val) && val >= 0) {
+          // Because getNextReceiptNoForMonth uses Math.max(state.lastReceiptNo, maxReceipt) + 1
+          // We need to set lastReceiptNo to the desired start number minus 1.
+          const newState = setLastReceiptNo(state, val - 1);
+          refreshState(newState);
+          setStartReceiptNo('');
+          setStatus({ type: 'success', message: `Next receipt number set to ${val}.` });
+      } else {
+          setStatus({ type: 'error', message: 'Please enter a valid positive number.' });
+      }
+  };
 
   useEffect(() => {
     // Load snapshot time
@@ -699,6 +715,36 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
                 <span>Upload CSV Update</span>
               </label>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 5: AUTO RECEIPT NUMBER CONTROL */}
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+          <Receipt size={16} className="mr-2" />
+          Auto Receipt Number Control
+        </h3>
+        
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6">
+          <p className="text-sm text-slate-500 mb-4 leading-relaxed">
+            Set the starting receipt number for the next automatic generation.
+          </p>
+          
+          <div className="flex space-x-3">
+             <input
+                type="number"
+                value={startReceiptNo}
+                onChange={(e) => setStartReceiptNo(e.target.value)}
+                className="flex-1 px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                placeholder="e.g. 1000"
+             />
+             <button
+                onClick={handleUpdateStartReceiptNo}
+                className="px-6 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 dark:shadow-none transition-colors"
+             >
+                Set
+             </button>
           </div>
         </div>
       </section>

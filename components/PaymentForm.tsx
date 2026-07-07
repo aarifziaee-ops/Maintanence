@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
 import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth } from '../services/storageService';
-import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString, calculateMaintenanceForMonth } from '../utils/helpers';
+import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString, calculateMaintenanceForMonth, getTransactionsForMonth, getOutstandingBreakdown } from '../utils/helpers';
 import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
@@ -36,6 +36,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   // Edit Specific
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isChangingFlat, setIsChangingFlat] = useState(false);
+
+  // Custom Confirm Modals
+  const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
+  const [showDoublePaymentConfirm, setShowDoublePaymentConfirm] = useState(false);
+
 
   // Success State
   const [generatedReceipt, setGeneratedReceipt] = useState<{
@@ -93,12 +98,53 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     );
   }, [state.transactions, searchTerm]);
 
+  
+  const outstandingBreakdownForSelected = useMemo(() => {
+    if (!selectedFlatId) return [];
+    const flat = state.flats.find(f => f.id === selectedFlatId);
+    if (!flat) return [];
+    const epochYear = 2025;
+    const epochMonth = 11;
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+
+    const pastTransactions = state.transactions.filter(t => t.flatId === flat.id);
+    return getOutstandingBreakdown(flat, pastTransactions, epochYear, epochMonth, currentYear, currentMonth);
+  }, [selectedFlatId, state.flats, state.transactions]);
+
+  const outstandingMonthsStr = useMemo(() => {
+    if (outstandingBreakdownForSelected.length === 0) return '';
+    return outstandingBreakdownForSelected.map(b => b.monthName.substring(0, 3).toUpperCase()).join(', ');
+  }, [outstandingBreakdownForSelected]);
+
+const intendedMonth = useMemo(() => {
+     const rm = (remarks || '').toLowerCase();
+     const MONTHS_LONG = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+     const MONTHS_SHORT = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+     
+     let foundMonth = -1;
+     for (let i=0; i<12; i++) {
+         if (rm.includes(MONTHS_LONG[i]) || new RegExp(`\\b${MONTHS_SHORT[i]}\\b`, 'i').test(rm)) {
+             foundMonth = i;
+             break;
+         }
+     }
+     
+     if (foundMonth !== -1) {
+         const yearMatch = rm.match(/\b(20\d{2})\b/);
+         const yearStr = yearMatch ? yearMatch[1] : paymentDate.substring(0, 4);
+         const mStr = (foundMonth + 1).toString().padStart(2, '0');
+         return `${yearStr}-${mStr}`;
+     }
+     return paymentDate.substring(0, 7);
+  }, [remarks, paymentDate]);
+
   // Check if selected flat has already paid for the selected month
   const isPaidForMonth = useMemo(() => {
       if (!selectedFlatId || editingTx) return false;
-      const monthPrefix = paymentDate.substring(0, 7);
-      return state.transactions.some(t => t.flatId === selectedFlatId && t.date.startsWith(monthPrefix));
-  }, [selectedFlatId, paymentDate, state.transactions, editingTx]);
+      const flatTxs = state.transactions.filter(t => t.flatId === selectedFlatId);
+      return getTransactionsForMonth(flatTxs, intendedMonth).length > 0;
+  }, [selectedFlatId, intendedMonth, state.transactions, editingTx]);
 
   const handleSelectFlat = (flatId: string) => {
     const flat = state.flats.find(f => f.id === flatId);
@@ -123,16 +169,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     return clean;
   };
 
-  const handlePayment = (e: React.FormEvent) => {
-    e.preventDefault();
+  const executePayment = () => {
     if (!selectedFlatId) return;
-    
-    if (isPaidForMonth) {
-        if(!window.confirm("This flat has already paid for this month. Do you want to generate another receipt?")) {
-            return;
-        }
-    }
-
     const cleanMobile = sanitizeMobile(mobile);
 
     try {
@@ -164,6 +202,17 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     } catch (error) {
       alert("Error processing payment");
     }
+  };
+
+  const handlePayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFlatId) return;
+    
+    if (isPaidForMonth) {
+        setShowDoublePaymentConfirm(true);
+        return;
+    }
+    executePayment();
   };
 
   const viewReceipt = (tx: Transaction) => {
@@ -220,10 +269,19 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   };
 
   const handleDelete = (tx: Transaction) => {
-    if (window.confirm(`Are you sure you want to delete Receipt #${tx.receiptNo} from ${tx.date}?\nThis will mark the flat as UNPAID.`)) {
-      const newState = deleteTransaction(state, tx.receiptNo, tx.date);
+    setTxToDelete(tx);
+  };
+
+  const confirmDelete = () => {
+    if (!txToDelete) return;
+    try {
+      const newState = deleteTransaction(state, txToDelete.receiptNo, txToDelete.date);
       refreshState(newState);
-      if (generatedReceipt?.receiptNo === tx.receiptNo) resetForm();
+      if (generatedReceipt?.receiptNo === txToDelete.receiptNo) resetForm();
+      setTxToDelete(null);
+    } catch (error: any) {
+      alert("Error deleting transaction: " + error.message);
+      console.error(error);
     }
   };
 
@@ -365,10 +423,68 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     </div>
   );
 
+  const renderModals = () => (
+    <>
+      {txToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Delete Receipt?</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              Are you sure you want to delete Receipt #{txToDelete.receiptNo} from {txToDelete.date}? This will mark the flat as UNPAID if no other receipts exist for that month.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setTxToDelete(null)}
+                className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold shadow-lg shadow-red-200 dark:shadow-none hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDoublePaymentConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Double Payment Warning</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+              This flat has already paid for this month. Do you want to generate another receipt?
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowDoublePaymentConfirm(false)}
+                className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowDoublePaymentConfirm(false);
+                  executePayment();
+                }}
+                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 dark:shadow-none hover:bg-blue-700"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   // --- VIEW: HISTORY ---
   if (activeTab === 'HISTORY') {
     return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
+        {renderModals()}
         {renderTabs()}
         <div className="p-4">
           <div className="relative mb-4">
@@ -389,7 +505,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
               </div>
             ) : (
               filteredHistory.map(tx => (
-                <div key={`${tx.receiptNo}-${tx.date}`} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
+                <div key={`${tx.receiptNo}-${tx.date}-${tx.timestamp || tx.amount}`} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-bold text-lg text-slate-800 dark:text-white">{tx.flatNumber}</span>
@@ -445,6 +561,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
 
     return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
+        {renderModals()}
         <div className="p-4 flex-1 overflow-y-auto pb-24">
           <button onClick={resetForm} className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-4 flex items-center">
              &larr; Cancel
@@ -466,7 +583,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
              <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-xl border border-amber-200 dark:border-amber-800 flex items-start">
                  <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 mr-2 mt-0.5 shrink-0" />
                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                     <strong>Warning:</strong> This flat has already recorded a payment for {new Date(paymentDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.
+                     <strong>Warning:</strong> This flat has already recorded a payment for {new Date(intendedMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.
                  </p>
              </div>
           )}
@@ -547,6 +664,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                   disabled={!!editingTx}
                 />
               </div>
+              
               <div>
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Period / Remarks</label>
                 <input
@@ -556,7 +674,14 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                   className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                   placeholder="e.g. May-June 2026"
                 />
+                {outstandingMonthsStr && !editingTx && (
+                  <p className="text-[10px] font-bold text-red-500 dark:text-red-400 mt-1.5 ml-1 flex items-center">
+                    <AlertCircle size={10} className="mr-1" />
+                    Pending: {outstandingMonthsStr}
+                  </p>
+                )}
               </div>
+
             </div>
 
             <div>
@@ -606,6 +731,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   if (step === 3 && generatedReceipt) {
      return (
     <div className="p-4 flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors overflow-y-auto">
+      {renderModals()}
       
       <div className="flex flex-col items-center justify-center text-center mb-6">
         <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-3">
@@ -736,6 +862,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   // STEP 1: SEARCH & SELECT
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
+      {renderModals()}
       {renderTabs()}
       
       <div className="p-4 flex flex-col flex-1 overflow-hidden">

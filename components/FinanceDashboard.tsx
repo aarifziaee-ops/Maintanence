@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AppState, FinancialRecord } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { formatCurrency, formatDate, getTodayDateString } from '../utils/helpers';
+import { formatCurrency, formatDate, getTodayDateString, calculateExpectedTotalBefore } from '../utils/helpers';
 import { Wallet, Plus, Trash2, Edit2, ChevronLeft, ChevronRight, IndianRupee, ArrowUpRight, ArrowDownRight, Download, Search, BookOpen, Tags, ChevronRight as ChevronRightIcon, ArrowLeft, Layers } from 'lucide-react';
 import { deleteFinancialRecord } from '../services/storageService';
+import ConfirmModal from './ConfirmModal';
 
 interface FinanceDashboardProps {
   state: AppState;
@@ -18,6 +19,8 @@ type FinanceTab = 'OVERVIEW' | 'TRANSACTIONS' | 'LEDGER';
 
 const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState, onAddTransaction, onEditTransaction }) => {
   const [activeTab, setActiveTab] = useState<FinanceTab>('OVERVIEW');
+  const [recordToDelete, setRecordToDelete] = useState<FinancialRecord | null>(null);
+
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [ledgerSearch, setLedgerSearch] = useState('');
@@ -77,26 +80,51 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
 
   const reportData = useMemo(() => {
      const startOfMonthStr = selectedMonth + '-01';
-     const startOfNextMonth = new Date(selectedMonth + '-01');
-     startOfNextMonth.setMonth(startOfNextMonth.getMonth() + 1);
-     const endOfMonthStr = startOfNextMonth.toISOString().slice(0, 10);
      let openingBalance = 0;
      const maintenanceBefore = state.transactions.filter(t => t.date < startOfMonthStr).reduce((sum, t) => sum + t.amount, 0);
+     const hallBefore = (state.hallBookings || []).filter(h => h.bookingDate < startOfMonthStr).reduce((sum, h) => sum + h.amount, 0);
      state.financialRecords.filter(r => r.type !== 'VENDOR_BILL').forEach(r => {
          if (r.date < startOfMonthStr) {
              if (r.type === 'INCOME') openingBalance += r.amount;
              if (r.type === 'EXPENSE') openingBalance -= r.amount;
          }
      });
-     openingBalance += maintenanceBefore;
-     const maintenanceThisMonth = state.transactions.filter(t => t.date >= startOfMonthStr && t.date < endOfMonthStr).reduce((sum, t) => sum + t.amount, 0);
-     const incomeRecords = state.financialRecords.filter(r => r.type === 'INCOME' && r.date >= startOfMonthStr && r.date < endOfMonthStr);
-     const totalOtherIncome = incomeRecords.reduce((sum, r) => sum + r.amount, 0);
-     const expenseRecords = state.financialRecords.filter(r => r.type === 'EXPENSE' && r.date >= startOfMonthStr && r.date < endOfMonthStr);
+     openingBalance += maintenanceBefore + hallBefore;
+     const maintenanceThisMonth = state.transactions.filter(t => t.date.startsWith(selectedMonth)).reduce((sum, t) => sum + t.amount, 0);
+     
+     let recoveryThisMonth = 0;
+     const selYear = parseInt(selectedMonth.split('-')[0]);
+     const selMonth = parseInt(selectedMonth.split('-')[1]);
+     const EPOCH_YEAR = 2026;
+     const EPOCH_MONTH = 4;
+
+     state.flats.forEach(flat => {
+         const expectedTotalBefore = calculateExpectedTotalBefore(flat, EPOCH_YEAR, EPOCH_MONTH, selYear, selMonth);
+         const totalPaidBefore = state.transactions
+             .filter(t => t.flatId === flat.id && t.date < startOfMonthStr)
+             .reduce((sum, t) => sum + t.amount, 0);
+         
+         const arrears = Math.max(0, expectedTotalBefore - totalPaidBefore);
+         
+         const paidThisMonth = state.transactions
+             .filter(t => t.flatId === flat.id && t.date.startsWith(selectedMonth))
+             .reduce((sum, t) => sum + t.amount, 0);
+             
+         if (paidThisMonth > 0 && arrears > 0) {
+             recoveryThisMonth += Math.min(paidThisMonth, arrears);
+         }
+     });
+     
+     const currentCollectionThisMonth = Math.max(0, maintenanceThisMonth - recoveryThisMonth);
+
+     const hallThisMonth = (state.hallBookings || []).filter(h => h.bookingDate.startsWith(selectedMonth)).reduce((sum, h) => sum + h.amount, 0);
+     const incomeRecords = state.financialRecords.filter(r => r.type === 'INCOME' && r.date.startsWith(selectedMonth));
+     const totalOtherIncome = incomeRecords.reduce((sum, r) => sum + r.amount, 0) + hallThisMonth;
+     const expenseRecords = state.financialRecords.filter(r => r.type === 'EXPENSE' && r.date.startsWith(selectedMonth));
      const totalExpenses = expenseRecords.reduce((sum, r) => sum + r.amount, 0);
      const totalIncome = maintenanceThisMonth + totalOtherIncome;
      const closingBalance = openingBalance + totalIncome - totalExpenses;
-     return { openingBalance, maintenanceThisMonth, totalOtherIncome, totalExpenses, totalIncome, closingBalance, globalCash: balanceData.cashInHand, globalBank: balanceData.cashAtBank };
+     return { openingBalance, maintenanceThisMonth, recoveryThisMonth, currentCollectionThisMonth, totalOtherIncome, totalExpenses, totalIncome, closingBalance, globalCash: balanceData.cashInHand, globalBank: balanceData.cashAtBank };
   }, [state, selectedMonth, balanceData]);
 
   const categorizedLedger = useMemo(() => {
@@ -112,18 +140,60 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
       categories[cat].count += 1;
     });
 
+    state.transactions.forEach(t => {
+      const cat = 'Maintenance';
+      if (!categories[cat]) categories[cat] = { totalIncome: 0, totalExpense: 0, count: 0 };
+      categories[cat].totalIncome += t.amount;
+      categories[cat].count += 1;
+    });
+
+    (state.hallBookings || []).forEach(h => {
+      const cat = 'Hall Booking';
+      if (!categories[cat]) categories[cat] = { totalIncome: 0, totalExpense: 0, count: 0 };
+      categories[cat].totalIncome += h.amount;
+      categories[cat].count += 1;
+    });
+
     return Object.entries(categories)
       .map(([name, data]) => ({ name, ...data }))
       .filter(c => c.name.toLowerCase().includes(ledgerSearch.toLowerCase()))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [state.financialRecords, ledgerSearch]);
+  }, [state.financialRecords, state.transactions, state.hallBookings, ledgerSearch]);
 
   const detailRecords = useMemo(() => {
     if (!selectedCategory) return [];
-    return state.financialRecords
+    
+    const regularRecords = state.financialRecords
       .filter(r => r.category === selectedCategory && r.type !== 'VENDOR_BILL')
+      .map(r => ({ ...r, displayTitle: r.description || 'No narration', displayCategory: r.category }));
+      
+    const maintenanceRecords = selectedCategory === 'Maintenance' 
+      ? state.transactions.map(t => ({
+          id: `m-${t.receiptNo}-${t.flatId}-${t.timestamp || t.amount}`,
+          date: t.date,
+          type: 'INCOME' as const,
+          amount: t.amount,
+          paymentMode: t.paymentMode || 'CASH',
+          displayTitle: `Maintenance Receipt #${t.receiptNo} - ${t.flatNumber}`,
+          displayCategory: 'Maintenance'
+        }))
+      : [];
+
+    const hallRecords = selectedCategory === 'Hall Booking'
+      ? (state.hallBookings || []).map(h => ({
+          id: `h-${h.id}`,
+          date: h.bookingDate,
+          type: 'INCOME' as const,
+          amount: h.amount,
+          paymentMode: 'CASH',
+          displayTitle: `Hall Booking - ${h.name} (${h.phone})`,
+          displayCategory: 'Hall Booking'
+        }))
+      : [];
+
+    return [...regularRecords, ...maintenanceRecords, ...hallRecords]
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [state.financialRecords, selectedCategory]);
+  }, [state.financialRecords, state.transactions, state.hallBookings, selectedCategory]);
 
   const generatePDF = () => {
     setIsGeneratingPdf(true);
@@ -136,14 +206,26 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
   };
 
   const handleDelete = (record: FinancialRecord) => {
-    if(window.confirm(`Delete record: "${record.description || record.category}" (${formatCurrency(record.amount)})?`)) {
-      const newState = deleteFinancialRecord(state, record.id);
+    setRecordToDelete(record);
+  };
+
+  const confirmDelete = () => {
+    if (recordToDelete) {
+      const newState = deleteFinancialRecord(state, recordToDelete.id);
       refreshState(newState);
+      setRecordToDelete(null);
     }
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950">
+      <ConfirmModal
+        isOpen={!!recordToDelete}
+        title="Delete Record"
+        message={recordToDelete ? `Are you sure you want to delete "${recordToDelete.description || recordToDelete.category}" (${formatCurrency(recordToDelete.amount)})?` : ''}
+        onConfirm={confirmDelete}
+        onCancel={() => setRecordToDelete(null)}
+      />
       {/* Navigation Header */}
       <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
         <div className="px-5 py-3 flex items-center justify-between">
@@ -193,16 +275,53 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
 
         {activeTab === 'TRANSACTIONS' && (
           <div className="space-y-3">
-             {state.financialRecords.filter(r => r.date.startsWith(selectedMonth) && r.type !== 'VENDOR_BILL').sort((a,b) => b.date.localeCompare(a.date)).map(record => (
+             {(() => {
+               const regularRecords = state.financialRecords
+                 .filter(r => r.date.startsWith(selectedMonth) && r.type !== 'VENDOR_BILL')
+                 .map(r => ({ ...r, displayTitle: r.description || 'No narration', displayCategory: r.category, canEdit: true }));
+               
+               const maintenanceRecords = state.transactions
+                 .filter(t => t.date.startsWith(selectedMonth))
+                 .map(t => ({
+                    id: `m-${t.receiptNo}-${t.flatId}-${t.timestamp || t.amount}`,
+                    date: t.date,
+                    type: 'INCOME' as const,
+                    amount: t.amount,
+                    paymentMode: t.paymentMode || 'CASH',
+                    displayTitle: `Maintenance Receipt #${t.receiptNo} - ${t.flatNumber}`,
+                    displayCategory: 'Maintenance',
+                    canEdit: false
+                 }));
+
+               const hallRecords = (state.hallBookings || [])
+                 .filter(h => h.bookingDate.startsWith(selectedMonth))
+                 .map(h => ({
+                    id: `h-${h.id}`,
+                    date: h.bookingDate,
+                    type: 'INCOME' as const,
+                    amount: h.amount,
+                    paymentMode: 'CASH',
+                    displayTitle: `Hall Booking - ${h.name} (${h.phone})`,
+                    displayCategory: 'Hall Booking',
+                    canEdit: false
+                 }));
+
+               const allMerged = [...regularRecords, ...maintenanceRecords, ...hallRecords].sort((a,b) => b.date.localeCompare(a.date));
+
+               if (allMerged.length === 0) {
+                 return <div className="text-center py-10 text-slate-400 font-bold text-sm">No records found for this month</div>;
+               }
+
+               return allMerged.map(record => (
                 <div key={record.id} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center group shadow-sm transition-all hover:border-slate-200">
                     <div className="flex items-center space-x-3 min-w-0 flex-1">
                         <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${record.type === 'INCOME' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                             {record.type === 'INCOME' ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
                         </div>
                         <div className="min-w-0 flex-1">
-                            <p className="text-sm font-black text-slate-800 dark:text-white break-words">{record.description || 'No narration'}</p>
+                            <p className="text-sm font-black text-slate-800 dark:text-white break-words">{record.displayTitle}</p>
                             <div className="flex items-center mt-1 space-x-2 flex-wrap gap-y-1">
-                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 uppercase">{record.category}</span>
+                                <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 uppercase">{record.displayCategory}</span>
                                 <p className="text-[10px] text-slate-400 uppercase font-black">{formatDate(record.date)} • {record.paymentMode}</p>
                             </div>
                         </div>
@@ -211,13 +330,15 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
                         <p className={`text-sm font-black ${record.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
                           {record.type === 'INCOME' ? '+' : '-'}{formatCurrency(record.amount)}
                         </p>
+                        {record.canEdit && (
                         <div className="flex space-x-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity mt-1">
-                            <button onClick={() => onEditTransaction(record)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={12} /></button>
-                            <button onClick={() => handleDelete(record)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={12} /></button>
+                            <button onClick={() => onEditTransaction(record as FinancialRecord)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={12} /></button>
+                            <button onClick={() => handleDelete(record as FinancialRecord)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={12} /></button>
                         </div>
+                        )}
                     </div>
                 </div>
-             ))}
+             ))})()}
           </div>
         )}
 
@@ -305,7 +426,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
                                     <p className="text-lg font-black text-slate-800 dark:text-white leading-none">{new Date(r.date).getDate()}</p>
                                  </div>
                                  <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-black text-slate-800 dark:text-white leading-tight break-words">{r.description || 'No description'}</p>
+                                    <p className="text-sm font-black text-slate-800 dark:text-white leading-tight break-words">{r.displayTitle || r.description || 'No description'}</p>
                                     <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{r.paymentMode} • {r.type}</p>
                                  </div>
                               </div>
@@ -313,14 +434,16 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
                                  <p className={`text-sm font-black ${r.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600'}`}>
                                     {r.type === 'INCOME' ? '+' : '-'}{formatCurrency(r.amount)}
                                  </p>
+                                 {(!r.id.startsWith('m-') && !r.id.startsWith('h-')) && (
                                  <div className="flex flex-col space-y-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => onEditTransaction(r)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded-lg transition-colors">
+                                    <button onClick={() => onEditTransaction(r as FinancialRecord)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded-lg transition-colors">
                                        <Edit2 size={14} />
                                     </button>
-                                    <button onClick={() => handleDelete(r)} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg transition-colors">
+                                    <button onClick={() => handleDelete(r as FinancialRecord)} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg transition-colors">
                                        <Trash2 size={14} />
                                     </button>
                                  </div>
+                                 )}
                               </div>
                            </div>
                         ))}

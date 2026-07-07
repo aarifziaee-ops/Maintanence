@@ -1,8 +1,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, downloadPDF, calculateExpectedTotalBefore, calculateMaintenanceForMonth } from '../utils/helpers';
-import { Clock, AlertCircle, Share2, Edit2, Calendar, Download, MessageCircle, FileText, CheckCircle2, CalendarDays, ChevronLeft, ChevronRight, Copy, FileSpreadsheet } from 'lucide-react';
+import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, getOutstandingBreakdown, generateDetailedReminderLink, downloadPDF, calculateExpectedTotalBefore, calculateMaintenanceForMonth, getTransactionsForMonth } from '../utils/helpers';
+import { Users, Clock, AlertCircle, Share2, Edit2, Calendar, Download, MessageCircle, FileText, CheckCircle2, CalendarDays, ChevronLeft, ChevronRight, Copy, FileSpreadsheet } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
 interface ReportsProps {
@@ -12,8 +12,15 @@ interface ReportsProps {
   onEditTransaction?: (tx: Transaction) => void;
 }
 
+
+const formatShortDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return `${d.getDate()}-${d.getMonth() + 1}-${d.getFullYear().toString().slice(2)}`;
+};
+
 const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTransaction }) => {
-  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'AUDIT' | 'BILLING' | 'BANK_TRANSFER'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
+  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'OUTSTANDING' | 'AUDIT' | 'BILLING' | 'BANK_TRANSFER' | 'OWNERS' | 'TENANTS'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
   
   // Date Range State for Collection Report
   const [fromDate, setFromDate] = useState<string>(getTodayDateString());
@@ -82,7 +89,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
 
   // Filter flats that have NOT paid in the selected month
   const unpaidFlats = useMemo(() => {
-    const monthTransactions = state.transactions.filter(t => t.date.startsWith(unpaidMonth));
+    const monthTransactions = getTransactionsForMonth(state.transactions, unpaidMonth);
     const paidFlatIds = new Set(monthTransactions.map(t => t.flatId));
     
     return state.flats.filter(f => !paidFlatIds.has(f.id));
@@ -90,25 +97,20 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
 
   // Calculate Billing Data
   const billingData = useMemo(() => {
-    // Assuming billing starts from Jan 2026
-    const epochYear = 2026;
-    const epochMonth = 1;
+    // User requested starting from November 2025
+    const epochYear = 2025;
+    const epochMonth = 11;
     
     const [selYearStr, selMonthStr] = billingMonth.split('-');
     const selYear = parseInt(selYearStr);
     const selMonth = parseInt(selMonthStr);
     
     return state.flats.map(flat => {
-      // Number of months passed from Jan 2026 up to (but not including) the selected billing month
-      // Use the utility to calculate taking historical rates and rent status into account.
-      const expectedTotalBefore = calculateExpectedTotalBefore(flat, epochYear, epochMonth, selYear, selMonth);
+      // Filter transactions BEFORE the selected billing month
+      const pastTransactions = state.transactions.filter(t => t.date.slice(0, 7) < billingMonth);
       
-      // Calculate total paid by this flat BEFORE the selected billing month
-      const totalPaidBefore = state.transactions
-        .filter(t => t.flatId === flat.id && t.date.slice(0, 7) < billingMonth)
-        .reduce((sum, t) => sum + t.amount, 0);
-        
-      const previousArrears = expectedTotalBefore - totalPaidBefore;
+      const breakdown = getOutstandingBreakdown(flat, pastTransactions, epochYear, epochMonth, selYear, selMonth);
+      const previousArrears = breakdown.reduce((sum, b) => sum + b.amount, 0);
       const currentMonthDue = calculateMaintenanceForMonth(flat, selYear, selMonth);
       const totalPayable = previousArrears + currentMonthDue;
       
@@ -116,7 +118,8 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
         ...flat,
         previousArrears,
         currentMonthDue,
-        totalPayable
+        totalPayable,
+        breakdown
       };
     }).sort((a, b) => a.flatNumber.localeCompare(b.flatNumber));
   }, [state.flats, state.transactions, billingMonth]);
@@ -244,8 +247,14 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
           </div>
           
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-             <span className="text-xs text-slate-400 font-bold uppercase">Total Collection</span>
-             <span className="text-xl font-black text-green-600 dark:text-green-400 tracking-tight">{formatCurrency(rangeTotal)}</span>
+             <div>
+               <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1 tracking-widest">Receipts Issued</span>
+               <span className="text-lg font-black text-slate-800 dark:text-white tracking-tight">{rangeReport.length} Receipts</span>
+             </div>
+             <div className="text-right">
+               <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1 tracking-widest">Total Collection</span>
+               <span className="text-2xl font-black text-green-600 dark:text-green-400 tracking-tight">{formatCurrency(rangeTotal)}</span>
+             </div>
           </div>
         </div>
 
@@ -264,9 +273,9 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                 {rangeReport.length === 0 ? (
                    <div className="p-12 text-center text-slate-400 dark:text-slate-500 text-sm">No transactions found for this period.</div>
                 ) : rangeReport.map((t) => (
-                  <div key={`${t.receiptNo}-${t.date}`} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
+                  <div key={`${t.receiptNo}-${t.date}-${t.timestamp || t.amount}`} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
                     <div className="w-10 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
-                    <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatDate(t.date).split(',')[0]}</div>
+                    <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatShortDate(t.date)}</div>
                     <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
                     <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">
                       {t.ownerName}
@@ -294,7 +303,9 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                 
                 {rangeReport.length > 0 && (
                    <div className="flex items-center p-4 bg-slate-50 dark:bg-slate-800/50 print:bg-slate-100">
-                      <div className="flex-1 text-right font-black uppercase text-[10px] tracking-widest text-slate-400 dark:text-slate-500">Summary Total Collected</div>
+                      <div className="flex-1 text-right font-black uppercase text-[10px] tracking-widest text-slate-400 dark:text-slate-500 print:text-black">
+                        Total {rangeReport.length} Receipts Issued
+                      </div>
                       <div className="w-20 text-right font-black text-slate-900 dark:text-white print:text-black ml-2">{formatCurrency(rangeTotal)}</div>
                       <div className="w-10 no-print"></div>
                    </div>
@@ -319,7 +330,13 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     </div>
   );
 
-  const renderUnpaidList = () => (
+  const renderUnpaidList = () => {
+    const totalPendingAmountForMonth = unpaidFlats.reduce((sum, flat) => {
+        const monthYear = unpaidMonth.split('-');
+        return sum + calculateMaintenanceForMonth(flat, parseInt(monthYear[0]), parseInt(monthYear[1]));
+    }, 0);
+
+    return (
     <div className="space-y-6">
        <div className="flex justify-between items-center no-print">
         <div className="flex items-center space-x-2">
@@ -366,6 +383,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
         <div className="flex items-center bg-black p-4 border-b border-black text-[10px] font-black text-white uppercase tracking-widest">
            <div className="w-20 shrink-0">Flat</div>
            <div className="flex-1 min-w-0 px-2">Owner</div>
+           <div className="w-24 shrink-0 text-right">Amount</div>
            <div className="w-10 shrink-0 text-center no-print"></div>
         </div>
 
@@ -374,6 +392,9 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
             <div key={flat.id} className="flex items-center p-4 text-xs">
                <div className="w-20 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
                <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+               <div className="w-24 shrink-0 text-right font-black text-red-600 dark:text-red-400 print:text-black">
+                  {formatCurrency(calculateMaintenanceForMonth(flat, parseInt(unpaidMonth.split('-')[0]), parseInt(unpaidMonth.split('-')[1])))}
+               </div>
                <div className="w-10 shrink-0 flex justify-center no-print">
                    {flat.mobile && (
                      <a href={generateReminderLink(flat.mobile, flat.ownerName, flat.flatNumber, calculateMaintenanceForMonth(flat, parseInt(unpaidMonth.split('-')[0]), parseInt(unpaidMonth.split('-')[1])))} target="_blank" rel="noreferrer" className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" title="Send WhatsApp Reminder">
@@ -383,13 +404,24 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                </div>
             </div>
           ))}
+
+          {unpaidFlats.length > 0 && (
+             <div className="flex items-center p-4 bg-slate-50 dark:bg-slate-800/50 print:bg-slate-100">
+                <div className="flex-1 text-right font-black uppercase text-[10px] tracking-widest text-slate-500 dark:text-slate-400 print:text-black">Total Pending</div>
+                <div className="w-24 shrink-0 text-right font-black text-red-600 dark:text-red-400 text-sm print:text-black pl-2">
+                   {formatCurrency(totalPendingAmountForMonth)}
+                </div>
+                <div className="w-10 shrink-0 no-print"></div>
+             </div>
+          )}
+
           {unpaidFlats.length === 0 && (
              <div className="p-12 text-center text-slate-400 font-bold italic">Congratulations! No pending payments for {new Date(unpaidMonth + '-01').toLocaleDateString('en-IN', { month: 'long' })}.</div>
           )}
         </div>
        </div>
     </div>
-  );
+  )};
 
   const renderAuditReport = () => (
     <div className="space-y-6">
@@ -575,7 +607,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                  <div className="w-10 shrink-0 flex justify-center no-print">
                      {flat.mobile && (
                        <a 
-                          href={generateSmartBillLink(flat.mobile, flat.ownerName, flat.flatNumber, formattedMonth, flat.currentMonthDue, flat.previousArrears, flat.totalPayable)} 
+                          href={generateSmartBillLink(flat.mobile, flat.ownerName, flat.flatNumber, formattedMonth, flat.currentMonthDue, flat.previousArrears, flat.totalPayable, flat.breakdown)} 
                           target="_blank" 
                           rel="noreferrer" 
                           className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" 
@@ -607,6 +639,166 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
       </div>
     );
   };
+
+  const renderOutstandingReport = () => {
+    const today = new Date();
+    const selYear = today.getFullYear();
+    const selMonth = today.getMonth() + 1;
+    // User requested starting from November 2025
+    const epochYear = 2025;
+    const epochMonth = 11;
+    
+    let totalOutstanding = 0;
+    
+    const outstandingData = state.flats.map(flat => {
+      const breakdown = getOutstandingBreakdown(flat, state.transactions, epochYear, epochMonth, selYear, selMonth);
+      const arrears = breakdown.reduce((sum, b) => sum + b.amount, 0);
+      
+      return {
+        ...flat,
+        arrears,
+        breakdown
+      };
+    }).filter(f => f.arrears > 0).sort((a, b) => b.arrears - a.arrears);
+
+    
+    totalOutstanding = outstandingData.reduce((sum, f) => sum + f.arrears, 0);
+    
+    return (
+      <div className="space-y-6">
+         <div className="flex justify-between items-center no-print">
+          <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">Consolidated Outstanding</h2>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-widest">All Arrears</p>
+          </div>
+          <button onClick={handleDownload} className="flex items-center space-x-2 text-white bg-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 shadow-md transition-colors">
+              <Download size={14} />
+              <span className="hidden sm:inline">Export PDF</span>
+          </button>
+         </div>
+
+         <div className="hidden print:block text-center mb-6 border-b-2 border-black pb-4">
+              <h1 className="text-2xl font-black text-black mb-1 uppercase tracking-tight">CONTINENTAL HEIGHTS B WING</h1>
+              <h2 className="text-lg font-bold text-black uppercase">CONSOLIDATED OUTSTANDING</h2>
+              <p className="text-sm text-black">As of: {new Date().toLocaleDateString('en-IN')}</p>
+         </div>
+         
+         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between no-print mb-4">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Total Outstanding</span>
+            <span className="text-xl font-black text-red-600 dark:text-red-400">{formatCurrency(totalOutstanding)}</span>
+         </div>
+
+         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
+          <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
+             <div className="w-16 shrink-0">Flat</div>
+             <div className="flex-1 min-w-0 px-2">Owner</div>
+             <div className="w-32 shrink-0 text-right">Outstanding</div>
+             <div className="w-10 shrink-0 text-center no-print"></div>
+          </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
+            {outstandingData.map(flat => (
+              <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
+                 <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
+                 <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+                 <div className="w-32 shrink-0 text-right font-black text-red-600 dark:text-red-400 print:text-black">
+                    {formatCurrency(flat.arrears)}
+                 </div>
+                 <div className="w-10 shrink-0 flex justify-center no-print">
+                     {flat.mobile && (
+                       <a 
+                          href={generateDetailedReminderLink(flat.mobile, flat.ownerName, flat.flatNumber, flat.arrears, flat.breakdown)} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" 
+                          title="Send Reminder via WhatsApp"
+                       >
+                          <MessageCircle size={18} />
+                       </a>
+                     )}
+                 </div>
+              </div>
+            ))}
+            {outstandingData.length === 0 && (
+              <div className="p-12 text-center text-slate-400 dark:text-slate-500 font-bold italic">No outstanding payments found.</div>
+            )}
+            
+            <div className="flex items-center p-4 bg-slate-50 dark:bg-slate-800/50 print:bg-slate-100">
+                <div className="flex-1 text-right font-black uppercase text-[10px] tracking-widest text-slate-500 dark:text-slate-400 print:text-black">Total Outstanding</div>
+                <div className="w-32 text-right font-black text-red-600 dark:text-red-400 print:text-black ml-2">{formatCurrency(totalOutstanding)}</div>
+                <div className="w-10 no-print"></div>
+            </div>
+          </div>
+         </div>
+      </div>
+    );
+  };
+  
+  
+  const renderDirectory = (type: 'OWNERS' | 'TENANTS') => {
+    const isTenants = type === 'TENANTS';
+    const title = isTenants ? 'Tenant Directory' : 'Owner Directory';
+    const filteredFlats = [...state.flats]
+      .filter(f => (isTenants ? f.isRented : !f.isRented))
+      .sort((a,b) => a.flatNumber.localeCompare(b.flatNumber));
+
+    return (
+      <div className="space-y-6">
+         <div className="flex justify-between items-center no-print">
+          <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">{title}</h2>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-widest">{filteredFlats.length} Flats</p>
+          </div>
+          <button onClick={handleDownload} className="flex items-center space-x-2 text-white bg-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 shadow-md transition-colors">
+              <Download size={14} />
+              <span className="hidden sm:inline">Export PDF</span>
+          </button>
+         </div>
+
+         <div className="hidden print:block text-center mb-6 border-b-2 border-black pb-4">
+              <h1 className="text-2xl font-black text-black mb-1 uppercase tracking-tight">CONTINENTAL HEIGHTS B WING</h1>
+              <h2 className="text-lg font-bold text-black uppercase">{title.toUpperCase()}</h2>
+         </div>
+         
+         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
+          <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
+             <div className="w-16 shrink-0">Flat</div>
+             <div className="flex-1 min-w-0 px-2">Name</div>
+             <div className="w-32 shrink-0">Telephone</div>
+             <div className="w-10 shrink-0 text-center no-print"></div>
+          </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
+            {filteredFlats.map(flat => (
+              <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
+                 <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
+                 <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+                 <div className="w-32 shrink-0 text-slate-600 dark:text-slate-300 print:text-black font-mono">
+                    {flat.mobile || '-'}
+                 </div>
+                 <div className="w-10 shrink-0 flex justify-center no-print">
+                     {flat.mobile && (
+                       <a 
+                          href={`https://wa.me/${flat.mobile}`} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" 
+                       >
+                          <MessageCircle size={18} />
+                       </a>
+                     )}
+                 </div>
+              </div>
+            ))}
+            {filteredFlats.length === 0 && (
+               <div className="p-8 text-center text-slate-500 italic">No flats found in this category.</div>
+            )}
+          </div>
+         </div>
+      </div>
+    );
+  };
+
 const renderBankTransferReport = () => {
     const totalBankTransfers = bankTransferData.reduce((sum, t) => sum + t.amount, 0);
 
@@ -668,9 +860,9 @@ const renderBankTransferReport = () => {
                   {bankTransferData.length === 0 ? (
                      <div className="p-12 text-center text-slate-400 dark:text-slate-500 text-sm font-medium">No bank transfers found for this month.</div>
                   ) : bankTransferData.map((t) => (
-                    <div key={`${t.receiptNo}-${t.date}`} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2 cursor-pointer" onClick={() => onEditTransaction && onEditTransaction(t)}>
+                    <div key={`${t.receiptNo}-${t.date}-${t.timestamp || t.amount}`} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2 cursor-pointer" onClick={() => onEditTransaction && onEditTransaction(t)}>
                       <div className="w-12 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
-                      <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatDate(t.date).split(',')[0]}</div>
+                      <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatShortDate(t.date)}</div>
                       <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
                       <div className="flex-1 min-w-0 px-2 font-medium text-slate-600 dark:text-slate-300 print:text-black truncate">
                         {t.ownerName}
@@ -715,6 +907,22 @@ const renderBankTransferReport = () => {
                 <FileText size={14} className="mr-2 hidden sm:inline" />
                 Collection
              </button>
+             
+             <button onClick={() => setActiveTab('OUTSTANDING')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'OUTSTANDING' ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                <AlertCircle size={14} className="mr-2 hidden sm:inline" />
+                Outstanding
+             </button>
+             
+             <button onClick={() => setActiveTab('OWNERS')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'OWNERS' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                <Users size={14} className="mr-2 hidden sm:inline" />
+                Owners
+             </button>
+             <button onClick={() => setActiveTab('TENANTS')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'TENANTS' ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                <Users size={14} className="mr-2 hidden sm:inline" />
+                Tenants
+             </button>
+
+
              <button onClick={() => setActiveTab('UNPAID')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'UNPAID' ? 'bg-white dark:bg-slate-700 text-red-600 dark:text-red-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
                 <AlertCircle size={14} className="mr-2 hidden sm:inline" />
                 Pending
@@ -735,6 +943,11 @@ const renderBankTransferReport = () => {
        </div>
        <div className="flex-1 overflow-y-auto p-4" id="printable-section">
           {activeTab === 'DAILY' && renderDailyReport()}
+
+          {activeTab === 'OUTSTANDING' && renderOutstandingReport()}
+          {activeTab === 'OWNERS' && renderDirectory('OWNERS')}
+          {activeTab === 'TENANTS' && renderDirectory('TENANTS')}
+
           {activeTab === 'UNPAID' && renderUnpaidList()}
           {activeTab === 'BILLING' && renderBillingReport()}
           {activeTab === 'AUDIT' && renderAuditReport()}

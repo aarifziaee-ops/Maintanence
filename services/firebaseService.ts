@@ -1,6 +1,6 @@
 
 import { initializeApp, FirebaseApp, getApps } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, Firestore } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, Firestore, setLogLevel } from 'firebase/firestore';
 import { AppState } from '../types';
 
 let app: FirebaseApp | null = null;
@@ -33,11 +33,12 @@ export const initFirebase = (config?: FirebaseConfig) => {
 
     app = initializeApp(config);
     db = getFirestore(app);
+    setLogLevel('silent');
     console.log("Firebase/Firestore initialized successfully");
     
     return true;
   } catch (error) {
-    console.error("Firebase initialization failed", error);
+    console.warn("Firebase initialization failed:", error instanceof Error ? error.message : error);
     return false;
   }
 };
@@ -54,7 +55,7 @@ export const saveToCloud = async (data: AppState): Promise<boolean> => {
     console.log("Data saved to cloud successfully");
     return true;
   } catch (error) {
-    console.error("Failed to save to cloud", error);
+    console.warn("Failed to save to cloud:", error instanceof Error ? error.message : "Unknown error");
     return false;
   }
 };
@@ -74,7 +75,7 @@ export const loadFromCloud = async (): Promise<AppState | null> => {
       return null;
     }
   } catch (error) {
-    console.error("Failed to load from cloud", error);
+    console.warn("Failed to load from cloud:", error instanceof Error ? error.message : "Unknown error");
     return null;
   }
 };

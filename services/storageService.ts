@@ -1,5 +1,5 @@
 
-import { AppState, Flat, PaymentStatus, Transaction, FinancialRecord, HallBooking } from '../types';
+import { AppState, Flat, PaymentStatus, Transaction, FinancialRecord, HallBooking, Vendor } from '../types';
 import { STORAGE_KEY, TOTAL_FLATS } from '../constants';
 import * as XLSX from 'xlsx';
 import { saveToCloud, loadFromCloud, initFirebase, isCloudEnabled, FirebaseConfig } from './firebaseService';
@@ -244,6 +244,71 @@ const INITIAL_FLAT_DATA = [
 /**
  * Loads the application state from local storage.
  */
+
+const applyInjections = (state: AppState): boolean => {
+    let modified = false;
+
+    const injectionsToApply = [
+        { flatNumber: 'B-0902', date: '2026-01-31', defaultReceiptNo: 212, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-3206', date: '2026-01-31', defaultReceiptNo: 215, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-1206', date: '2026-01-31', defaultReceiptNo: 213, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-2006', date: '2026-01-31', defaultReceiptNo: 211, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-2408', date: '2026-01-31', defaultReceiptNo: 210, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-3702', date: '2026-01-31', defaultReceiptNo: 209, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-1802', date: '2026-01-27', defaultReceiptNo: 207, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-2301', date: '2026-01-27', defaultReceiptNo: 208, targetMonth: '2026-01', remarks: 'January 2026', amount: 500 },
+        { flatNumber: 'B-3206', date: '2026-01-31', defaultReceiptNo: 217, targetMonth: '2025-11', remarks: 'November 2025', amount: 500 }
+    ];
+
+    for (const inj of injectionsToApply) {
+        // Find existing transaction targeting this month
+        const txExists = state.transactions.some((t) => 
+            t.flatNumber === inj.flatNumber && 
+            (t.date.startsWith(inj.targetMonth) || (t.remarks && t.remarks.toLowerCase().includes(inj.remarks.toLowerCase().split(' ')[0])))
+        );
+        
+        if (!txExists) {
+            const flatInfo = state.flats.find((f) => f.flatNumber === inj.flatNumber);
+            if (flatInfo) {
+                let rNo = inj.defaultReceiptNo;
+                while(state.transactions.some(t => t.receiptNo === rNo)) {
+                    rNo++;
+                }
+                state.transactions.push({
+                    receiptNo: rNo,
+                    date: inj.date,
+                    timestamp: new Date(inj.date + 'T12:00:00Z').getTime(),
+                    flatId: flatInfo.id,
+                    flatNumber: flatInfo.flatNumber,
+                    ownerName: flatInfo.ownerName || '',
+                    amount: inj.amount,
+                    mobile: flatInfo.mobile || '',
+                    paymentMode: 'CASH',
+                    remarks: inj.remarks
+                });
+                modified = true;
+            }
+        }
+
+        // Fix any existing txs for these flats targeting this month
+        state.transactions.forEach(t => {
+            if (t.flatNumber === inj.flatNumber && (t.date.startsWith(inj.targetMonth) || (t.remarks && t.remarks.toLowerCase().includes(inj.remarks.toLowerCase().split(' ')[0])))) {
+                if (t.amount !== inj.amount || !t.remarks) {
+                    t.amount = inj.amount;
+                    if (!t.remarks) t.remarks = inj.remarks;
+                    modified = true;
+                }
+            }
+        });
+    }
+
+    if (modified) {
+        state.transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+
+    return modified;
+};
+
 export const loadData = (): AppState => {
   // Attempt to load cloud config from storage and init
   const cloudConfig = getCloudConfig();
@@ -259,6 +324,8 @@ export const loadData = (): AppState => {
       // Basic validation: ensure it's an object with flats
       if (state && Array.isArray(state.flats)) {
          // Migration for new features
+         if (!state.transactions) state.transactions = [];
+         if (!state.financialRecords) state.financialRecords = [];
          if (!state.hallBookings) state.hallBookings = [];
          if (!state.vendors) state.vendors = [];
          if (!state.theme) state.theme = 'LIGHT'; // Default Theme
@@ -269,6 +336,10 @@ export const loadData = (): AppState => {
              state.lastReceiptNo = maxReceipt;
          }
 
+         if (applyInjections(state)) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            if (isCloudEnabled()) saveToCloud(state);
+         }
          return state;
       }
     } catch (e) {
@@ -379,14 +450,14 @@ export const updateFlatDetails = (state: AppState, flatId: string, updates: Part
  * Starting March 2026, receipt numbers continue from the previous month.
  */
 export const getNextReceiptNoForMonth = (state: AppState, dateString: string): number => {
-    // Continuous numbering system across all months starting from 2026.
-    // This allows backdating receipts (e.g., for Jan or Feb) while keeping 
-    // the receipt numbers sequential from the last issued one (e.g., 200 -> 201).
+    // If the user has explicitly set a lastReceiptNo or it's being tracked, use it.
+    if (state.lastReceiptNo !== undefined && state.lastReceiptNo > 0) {
+        return state.lastReceiptNo + 1;
+    }
+    
+    // Fallback if lastReceiptNo is 0 or undefined
     const relevantTx = state.transactions.filter(t => t.date >= '2026-01-01');
     const maxReceipt = relevantTx.reduce((max, t) => Math.max(max, t.receiptNo), 0);
-    
-    // If no transactions exist in 2026 yet, start from 1.
-    // Otherwise, continue from the maximum found (e.g., 200 + 1 = 201).
     return maxReceipt + 1;
 };
 
@@ -492,7 +563,7 @@ export const deleteTransaction = (state: AppState, receiptNo: number, dateContex
   };
   
   const index = newState.transactions.findIndex(t => 
-      t.receiptNo === receiptNo && 
+      Number(t.receiptNo) === Number(receiptNo) && 
       (dateContext ? t.date === dateContext : true)
   );
 
@@ -645,6 +716,7 @@ export const importDataFromExcel = async (file: File): Promise<AppState> => {
           transactions,
           financialRecords: financialRecords || [],
           hallBookings: hallBookings || [],
+          vendors: [],
           lastReceiptNo,
           theme: 'LIGHT' 
         };
@@ -722,6 +794,9 @@ export const syncFromCloud = async (): Promise<AppState | null> => {
     }
 
     // Overwrite local data since cloud is newer or local didn't exist
+    if (applyInjections(cloudData)) {
+        if (isCloudEnabled()) saveToCloud(cloudData);
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
     return cloudData;
   }
@@ -902,6 +977,15 @@ export const deleteHallBooking = (state: AppState, bookingId: string) => {
   const newState = {
     ...state,
     hallBookings: (state.hallBookings || []).filter(b => b.id !== bookingId)
+  };
+  saveData(newState);
+  return newState;
+};
+
+export const setLastReceiptNo = (state: AppState, newLastReceiptNo: number) => {
+  const newState = {
+    ...state,
+    lastReceiptNo: newLastReceiptNo
   };
   saveData(newState);
   return newState;

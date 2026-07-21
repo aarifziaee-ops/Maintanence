@@ -17,8 +17,19 @@ export interface FirebaseConfig {
   appId?: string;
 }
 
+const CONFIG_FROM_ENV: FirebaseConfig = {
+  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "",
+  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID,
+};
+
 export const initFirebase = (config?: FirebaseConfig) => {
   try {
+    const configToUse = config || CONFIG_FROM_ENV;
+    
     // Check if already initialized
     if (getApps().length > 0) {
        app = getApps()[0];
@@ -27,11 +38,17 @@ export const initFirebase = (config?: FirebaseConfig) => {
     }
 
     // If not initialized, we need config
-    if (!config || !config.apiKey || !config.projectId) {
+    if (!configToUse || !configToUse.apiKey || !configToUse.projectId) {
         return false;
     }
 
-    app = initializeApp(config);
+    const cleanConfig = {
+      ...configToUse,
+      apiKey: configToUse.apiKey.trim(),
+      projectId: configToUse.projectId.trim(),
+      authDomain: configToUse.authDomain ? configToUse.authDomain.trim() : `${configToUse.projectId.trim()}.firebaseapp.com`
+    };
+    app = initializeApp(cleanConfig);
     db = getFirestore(app);
     setLogLevel('silent');
     console.log("Firebase/Firestore initialized successfully");

@@ -186,7 +186,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
           type: 'INCOME' as const,
           amount: h.amount,
           paymentMode: 'CASH',
-          displayTitle: `Hall Booking - ${h.name} (${h.phone})`,
+          displayTitle: `Hall Booking - ${h.ownerName} (${h.mobile})`,
           displayCategory: 'Hall Booking'
         }))
       : [];
@@ -301,7 +301,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
                     type: 'INCOME' as const,
                     amount: h.amount,
                     paymentMode: 'CASH',
-                    displayTitle: `Hall Booking - ${h.name} (${h.phone})`,
+                    displayTitle: `Hall Booking - ${h.ownerName} (${h.mobile})`,
                     displayCategory: 'Hall Booking',
                     canEdit: false
                  }));
@@ -426,7 +426,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({ state, refreshState
                                     <p className="text-lg font-black text-slate-800 dark:text-white leading-none">{new Date(r.date).getDate()}</p>
                                  </div>
                                  <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-black text-slate-800 dark:text-white leading-tight break-words">{r.displayTitle || r.description || 'No description'}</p>
+                                    <p className="text-sm font-black text-slate-800 dark:text-white leading-tight break-words">{(() => { const record = r as any; return r.displayTitle || record.description || 'No description'; })()}</p>
                                     <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">{r.paymentMode} • {r.type}</p>
                                  </div>
                               </div>

@@ -1,1 +1,2 @@
-const { getTransactionsForMonth } = require('./dist/server.cjs'); // wait no, just require it from src maybe via tsx
+const env = { VITE_TEST: 'yes' };
+console.log(env.toString());

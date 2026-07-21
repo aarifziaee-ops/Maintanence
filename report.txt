@@ -1,0 +1,108 @@
+Firestore Usage Report
+======================
+
+
+Search: initializeApp(
+----------------------
+Filename: services/firebaseService.ts | Line: 40 | Code: app = initializeApp(cleanConfig);
+
+Search: getFirestore(
+----------------------
+Filename: services/firebaseService.ts | Line: 25 | Code: if (!db) db = getFirestore(app);
+Filename: services/firebaseService.ts | Line: 41 | Code: db = getFirestore(app);
+
+Search: collection(
+----------------------
+No matches found.
+
+Search: doc(
+----------------------
+Filename: services/firebaseService.ts | Line: 60 | Code: await setDoc(doc(db, COLLECTION_NAME, DOC_ID), cleanData);
+Filename: services/firebaseService.ts | Line: 73 | Code: const docRef = doc(db, COLLECTION_NAME, DOC_ID);
+
+Search: getDoc(
+----------------------
+Filename: services/firebaseService.ts | Line: 74 | Code: const docSnap = await getDoc(docRef);
+
+Search: getDocs(
+----------------------
+No matches found.
+
+Search: onSnapshot(
+----------------------
+No matches found.
+
+Search: firebaseConfig
+----------------------
+No matches found.
+
+Search: projectId
+----------------------
+Filename: components/Settings.tsx | Line: 29 | Code: const [projectId, setProjectId] = useState('');
+Filename: components/Settings.tsx | Line: 59 | Code: setProjectId(savedConfig.projectId);
+Filename: components/Settings.tsx | Line: 92 | Code: if (!apiKey.trim() || !projectId.trim()) {
+Filename: components/Settings.tsx | Line: 99 | Code: projectId,
+Filename: components/Settings.tsx | Line: 100 | Code: authDomain: authDomain || `${projectId}.firebaseapp.com`
+Filename: components/Settings.tsx | Line: 439 | Code: value={projectId}
+Filename: services/firebaseService.ts | Line: 14 | Code: projectId: string;
+Filename: services/firebaseService.ts | Line: 30 | Code: if (!config || !config.apiKey || !config.projectId) {
+Filename: services/firebaseService.ts | Line: 37 | Code: projectId: config.projectId.trim(),
+Filename: services/firebaseService.ts | Line: 38 | Code: authDomain: config.authDomain ? config.authDomain.trim() : `${config.projectId.trim()}.firebaseapp.com`
+
+Search: apiKey
+----------------------
+Filename: components/Settings.tsx | Line: 28 | Code: const [apiKey, setApiKey] = useState('');
+Filename: components/Settings.tsx | Line: 58 | Code: setApiKey(savedConfig.apiKey);
+Filename: components/Settings.tsx | Line: 92 | Code: if (!apiKey.trim() || !projectId.trim()) {
+Filename: components/Settings.tsx | Line: 98 | Code: apiKey,
+Filename: components/Settings.tsx | Line: 429 | Code: value={apiKey}
+Filename: services/geminiService.ts | Line: 44 | Code: const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+Filename: services/geminiService.ts | Line: 66 | Code: const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+Filename: services/firebaseService.ts | Line: 12 | Code: apiKey: string;
+Filename: services/firebaseService.ts | Line: 30 | Code: if (!config || !config.apiKey || !config.projectId) {
+Filename: services/firebaseService.ts | Line: 36 | Code: apiKey: config.apiKey.trim(),
+
+Analysis of Firestore Listen 400 Bad Request
+--------------------------------------------
+The error "GET https://firestore.googleapis.com/.../Listen... 400 (Bad Request)" typically occurs when the Firestore SDK attempts to establish a real-time listener (e.g., via `onSnapshot`), but the configuration (like `projectId` or `apiKey`) is invalid, empty, or contains hidden characters like whitespaces/newlines.
+
+However, based on the codebase search, there is NO usage of `onSnapshot`. The only Firestore methods used are `setDoc` and `getDoc`. 
+
+Why would a Listen request happen?
+1. The Firebase JS SDK (especially older versions or specific configurations) might automatically fall back to polling or attempt a stream connection even for `getDoc` operations if it tries to sync state. 
+2. A third-party dependency could be making the call.
+3. If `projectId` is an empty string, the URL becomes malformed: `/v1/projects//databases...` which can trigger a 400 Bad Request from Google APIs, and it might be logged generically as a Listen failure in some network consoles.
+
+Suspicious Code:
+Filename: components/Settings.tsx
+Line 92-101:
+```typescript
+    const config = {
+        apiKey,
+        projectId,
+        authDomain: authDomain || `${projectId}.firebaseapp.com`
+    };
+```
+If `apiKey` or `projectId` contain trailing whitespaces or are empty when this object is constructed, it will create a malformed config. The previous patch script missed this block because it spanned multiple lines.
+
+Filename: services/firebaseService.ts
+Line 36-41:
+```typescript
+    const cleanConfig = {
+      ...config,
+      apiKey: config.apiKey.trim(),
+      projectId: config.projectId.trim(),
+      authDomain: config.authDomain ? config.authDomain.trim() : `${config.projectId.trim()}.firebaseapp.com`
+    };
+    app = initializeApp(cleanConfig);
+```
+This was recently patched to trim whitespace, but if a previously initialized app exists, it skips this:
+```typescript
+    // Check if already initialized
+    if (getApps().length > 0) { 
+       app = getApps()[0];
+       if (!db) db = getFirestore(app);
+       return true;
+    }
+```
+If the app was initialized with a bad config previously, it will reuse the bad config. 

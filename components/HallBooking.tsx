@@ -320,7 +320,7 @@ const HallBooking: React.FC<HallBookingProps> = ({ state, refreshState }) => {
                                {status}
                             </div>
                          </div>
-                         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 line-clamp-1">{booking.ownerName}</p>
+                         <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 break-words">{booking.ownerName}</p>
                          
                          <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-800">
                             <span className="font-black text-slate-800 dark:text-white">{formatCurrency(booking.amount)}</span>

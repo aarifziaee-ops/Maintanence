@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth } from '../services/storageService';
+import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth, saveData } from '../services/storageService';
 import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString, calculateMaintenanceForMonth, getTransactionsForMonth, getOutstandingBreakdown } from '../utils/helpers';
 import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
@@ -29,6 +29,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
   const [manualReceiptNo, setManualReceiptNo] = useState<string>('');
   const [remarks, setRemarks] = useState<string>('');
+  const [outstandingBalances, setOutstandingBalances] = useState<any[]>([]); // New state
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]); // Stores indices of selected outstanding balances
+  const [selectedAdvanceMonths, setSelectedAdvanceMonths] = useState<string[]>([]); // Stores selected advance month strings
 
   // Preview Receipt No
   const [previewReceiptNo, setPreviewReceiptNo] = useState<number>(1);
@@ -53,6 +56,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     paymentMode: 'CASH' | 'BANK';
     isDuplicate?: boolean;
     remarks?: string;
+    rawDate?: string;
   } | null>(null);
 
   // Update preview receipt number whenever paymentDate changes
@@ -72,7 +76,34 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
 
   // Auto-update amount when selected flat or date changes (only if it's a new payment)
   useEffect(() => {
-    if (selectedFlatId && !editingTx && paymentDate) {
+    if (selectedFlatId) {
+        fetch(`/api/outstanding-balances/${selectedFlatId}`)
+            .then(res => res.json())
+            .then(data => {
+                const sorted = [...data].sort((a, b) => a.month.localeCompare(b.month));
+                setOutstandingBalances(sorted);
+                if (!editingTx) {
+                    if (sorted.length > 0) {
+                        setSelectedMonths([0]);
+                        setAmount(sorted[0].amount);
+                    } else {
+                        setSelectedMonths([]);
+                        const flat = state.flats.find(f => f.id === selectedFlatId);
+                        if (flat && paymentDate) {
+                            const targetYear = parseInt(paymentDate.split('-')[0]);
+                            const targetMonth = parseInt(paymentDate.split('-')[1]);
+                            setAmount(calculateMaintenanceForMonth(flat, targetYear, targetMonth));
+                        } else {
+                            setAmount(MAINTENANCE_AMOUNT);
+                        }
+                    }
+                }
+            });
+    }
+  }, [selectedFlatId, editingTx]);
+
+  useEffect(() => {
+    if (selectedFlatId && !editingTx && paymentDate && (!outstandingBalances || outstandingBalances.length === 0)) {
       const flat = state.flats.find(f => f.id === selectedFlatId);
       if (flat) {
          const targetYear = parseInt(paymentDate.split('-')[0]);
@@ -80,7 +111,30 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
          setAmount(calculateMaintenanceForMonth(flat, targetYear, targetMonth));
       }
     }
-  }, [selectedFlatId, paymentDate, state.flats, editingTx]);
+  }, [selectedFlatId, paymentDate, state.flats, editingTx, outstandingBalances]);
+
+  // Synchronize checkboxes when the user types an amount manually (greedy selection starting from oldest outstanding month)
+  useEffect(() => {
+    if (outstandingBalances.length > 0 && !editingTx && selectedAdvanceMonths.length === 0) {
+      let currentSum = 0;
+      const newSelected: number[] = [];
+      for (let i = 0; i < outstandingBalances.length; i++) {
+        currentSum += outstandingBalances[i].amount;
+        newSelected.push(i);
+        if (currentSum === amount) {
+          const isSame = selectedMonths.length === newSelected.length && 
+                         selectedMonths.every((val, index) => val === newSelected[index]);
+          if (!isSame) {
+            setSelectedMonths(newSelected);
+          }
+          return;
+        }
+        if (currentSum > amount) {
+          break;
+        }
+      }
+    }
+  }, [amount, outstandingBalances, editingTx, selectedMonths, selectedAdvanceMonths]);
 
   // --- Search Logic ---
   const filteredFlats = useMemo(() => {
@@ -90,32 +144,183 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     );
   }, [state.flats, searchTerm]);
 
+  // Generate list of possible advance months to display
+  const advanceMonthsOptions = useMemo(() => {
+    if (!selectedFlatId) return [];
+    
+    // Find latest month either in outstanding or in the current date
+    let baseMonthStr = '';
+    if (outstandingBalances && outstandingBalances.length > 0) {
+      baseMonthStr = outstandingBalances[outstandingBalances.length - 1].month;
+    } else {
+      baseMonthStr = paymentDate.substring(0, 7); // e.g. '2026-07'
+    }
+    
+    const parts = baseMonthStr.split('-');
+    if (parts.length < 2) return [];
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    
+    const options = [];
+    const ABBRS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    
+    for (let i = 1; i <= 3; i++) {
+      let nextMonth = month + i;
+      let nextYear = year;
+      if (nextMonth > 12) {
+        nextMonth -= 12;
+        nextYear += 1;
+      }
+      
+      const monthStr = `${nextYear}-${nextMonth.toString().padStart(2, '0')}`;
+      const flat = state.flats.find(f => f.id === selectedFlatId);
+      const amountVal = flat ? calculateMaintenanceForMonth(flat, nextYear, nextMonth) : 2500;
+      
+      options.push({
+        month: monthStr,
+        label: `${ABBRS[nextMonth - 1]} ${nextYear}`,
+        amount: amountVal
+      });
+    }
+    return options;
+  }, [selectedFlatId, outstandingBalances, paymentDate, state.flats]);
+
+  const recalculatePaymentDetails = (newSelected: number[], newAdvance: string[]) => {
+    setSelectedMonths(newSelected);
+    setSelectedAdvanceMonths(newAdvance);
+
+    // Calculate sum of outstanding months
+    const outstandingSum = newSelected.reduce((sum, idx) => sum + (outstandingBalances[idx]?.amount || 0), 0);
+    
+    // Calculate sum of advance months
+    const advanceSum = newAdvance.reduce((sum, monthStr) => {
+      const opt = advanceMonthsOptions.find(o => o.month === monthStr);
+      return sum + (opt ? opt.amount : 0);
+    }, 0);
+
+    const totalSum = outstandingSum + advanceSum;
+    setAmount(totalSum);
+
+    // Generate remarks based on selected months
+    // 1. Outstanding months abbreviations
+    const selectedMonthsAbbrs = newSelected.map(idx => {
+        const m = outstandingBalances[idx].month; // YYYY-MM
+        const monthParts = m.split('-');
+        const monthIdx = parseInt(monthParts[1], 10) - 1;
+        const abbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return abbrs[monthIdx];
+    });
+
+    // 2. Advance months abbreviations
+    const advanceMonthsAbbrs = newAdvance.map(monthStr => {
+        const monthParts = monthStr.split('-');
+        const monthIdx = parseInt(monthParts[1], 10) - 1;
+        const abbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return abbrs[monthIdx];
+    });
+
+    // Combine all abbreviations in order of calendar months (with Apr-Mar fiscal cycle order)
+    const order = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    
+    // We want a unique, sorted list of abbreviations
+    const uniqueAbbrsSet = new Set([...selectedMonthsAbbrs, ...advanceMonthsAbbrs]);
+    const allAbbrs = Array.from(uniqueAbbrsSet).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+    if (allAbbrs.length > 0) {
+        setRemarks(generatePeriodString(allAbbrs, paymentDate.substring(0, 4)));
+    } else {
+        setRemarks('');
+    }
+  };
+
   const filteredHistory = useMemo(() => {
-    return state.transactions.filter(tx => 
+    return [...state.transactions].filter(tx => 
       tx.flatNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
       tx.ownerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       tx.receiptNo.toString().includes(searchTerm)
-    );
+    ).sort((a, b) => b.receiptNo - a.receiptNo);
   }, [state.transactions, searchTerm]);
 
   
-  const outstandingBreakdownForSelected = useMemo(() => {
-    if (!selectedFlatId) return [];
-    const flat = state.flats.find(f => f.id === selectedFlatId);
-    if (!flat) return [];
-    const epochYear = 2025;
-    const epochMonth = 11;
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
+  const isMonthTicked = (monthAbbr: string, remarksText: string) => {
+    const rm = (remarksText || '').toLowerCase();
+    const mapping: { [key: string]: string[] } = {
+      'Apr': ['apr', 'april'],
+      'May': ['may'],
+      'Jun': ['jun', 'june'],
+      'Jul': ['jul', 'july'],
+      'Aug': ['aug', 'august'],
+      'Sep': ['sep', 'sept', 'september'],
+      'Oct': ['oct', 'october'],
+      'Nov': ['nov', 'november'],
+      'Dec': ['dec', 'december'],
+      'Jan': ['jan', 'january'],
+      'Feb': ['feb', 'february'],
+      'Mar': ['mar', 'march']
+    };
+    const targets = mapping[monthAbbr] || [monthAbbr.toLowerCase()];
+    return targets.some(target => {
+      const regex = new RegExp(`\\b${target}\\b`, 'i');
+      return regex.test(rm);
+    });
+  };
 
-    const pastTransactions = state.transactions.filter(t => t.flatId === flat.id);
-    return getOutstandingBreakdown(flat, pastTransactions, epochYear, epochMonth, currentYear, currentMonth);
-  }, [selectedFlatId, state.flats, state.transactions]);
+  const generatePeriodString = (checkedAbbrs: string[], year: string) => {
+    if (checkedAbbrs.length === 0) return '';
+    const monthFullNames: { [key: string]: string } = {
+      'Apr': 'April', 'May': 'May', 'Jun': 'June',
+      'Jul': 'July', 'Aug': 'August', 'Sep': 'September',
+      'Oct': 'October', 'Nov': 'November', 'Dec': 'December',
+      'Jan': 'January', 'Feb': 'February', 'Mar': 'March'
+    };
+    const selectedFull = checkedAbbrs.map(abbr => monthFullNames[abbr] || abbr);
+    if (selectedFull.length === 1) {
+      return `Payment for ${selectedFull[0]} ${year}`;
+    }
+    if (selectedFull.length === 2) {
+      return `Payment for ${selectedFull[0]} and ${selectedFull[1]} ${year}`;
+    }
+    return `Payment for ${selectedFull.slice(0, -1).join(', ')}, and ${selectedFull[selectedFull.length - 1]} ${year}`;
+  };
+
+  const getPaymentPeriodText = (remarks?: string, rawDate?: string) => {
+    if (remarks && remarks.trim()) {
+      return remarks;
+    }
+    if (rawDate) {
+      const parts = rawDate.split('-');
+      if (parts.length >= 2) {
+        const year = parts[0];
+        const monthIdx = parseInt(parts[1], 10) - 1;
+        const MONTHS = [
+          "January", "February", "March", "April", "May", "June", 
+          "July", "August", "September", "October", "November", "December"
+        ];
+        if (monthIdx >= 0 && monthIdx < 12) {
+          return `Payment for ${MONTHS[monthIdx]} ${year}`;
+        }
+      }
+    }
+    return 'N/A';
+  };
+
+  const formatMonthKey = (monthStr: string) => {
+    const parts = monthStr.split('-');
+    if (parts.length === 2) {
+      const year = parts[0];
+      const monthIndex = parseInt(parts[1], 10) - 1;
+      const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      if (monthIndex >= 0 && monthIndex < 12) {
+        return `${MONTHS[monthIndex]}-${year.slice(-2)}`;
+      }
+    }
+    return monthStr;
+  };
 
   const outstandingMonthsStr = useMemo(() => {
-    if (outstandingBreakdownForSelected.length === 0) return '';
-    return outstandingBreakdownForSelected.map(b => b.monthName.substring(0, 3).toUpperCase()).join(', ');
-  }, [outstandingBreakdownForSelected]);
+    if (!outstandingBalances || outstandingBalances.length === 0) return '';
+    return outstandingBalances.map(b => formatMonthKey(b.month).toUpperCase()).join(', ');
+  }, [outstandingBalances]);
 
 const intendedMonth = useMemo(() => {
      const rm = (remarks || '').toLowerCase();
@@ -150,6 +355,9 @@ const intendedMonth = useMemo(() => {
     const flat = state.flats.find(f => f.id === flatId);
     if (flat) {
       setSelectedFlatId(flatId);
+      setSelectedMonths([]); // Reset selection
+      setSelectedAdvanceMonths([]); // Reset advance selection
+      setAmount(MAINTENANCE_AMOUNT); // Reset amount
       // Only overwrite names if we aren't mid-edit or if we explicitly changed flat
       if (!editingTx || isChangingFlat) {
           setOwnerName(flat.ownerName || '');
@@ -169,11 +377,23 @@ const intendedMonth = useMemo(() => {
     return clean;
   };
 
-  const executePayment = () => {
+  const executePayment = async () => {
     if (!selectedFlatId) return;
     const cleanMobile = sanitizeMobile(mobile);
 
     try {
+      if (selectedMonths.length > 0) {
+        const idsToDelete = selectedMonths.map(idx => outstandingBalances[idx].id);
+        const delRes = await fetch('/api/delete-outstanding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: idsToDelete })
+        });
+        if (!delRes.ok) {
+          console.error("Failed to delete paid outstanding months");
+        }
+      }
+
       const { newState, transaction } = processPayment(
         state,
         selectedFlatId,
@@ -186,7 +406,6 @@ const intendedMonth = useMemo(() => {
         remarks || undefined
       );
       
-      refreshState(newState);
       setGeneratedReceipt({
         receiptNo: transaction.receiptNo,
         date: formatDate(transaction.date),
@@ -196,8 +415,20 @@ const intendedMonth = useMemo(() => {
         mobile: transaction.mobile,
         paymentMode: transaction.paymentMode || 'CASH',
         isDuplicate: false,
-        remarks: transaction.remarks
+        remarks: transaction.remarks,
+        rawDate: transaction.date
       });
+      
+      await saveData(newState);
+      
+      const syncRes = await fetch('/api/state');
+      if (syncRes.ok) {
+        const syncedData = await syncRes.json();
+        refreshState(syncedData);
+      } else {
+        refreshState(newState);
+      }
+      
       setStep(3);
     } catch (error) {
       alert("Error processing payment");
@@ -225,7 +456,8 @@ const intendedMonth = useMemo(() => {
       mobile: tx.mobile,
       paymentMode: tx.paymentMode || 'CASH',
       isDuplicate: true,
-      remarks: tx.remarks
+      remarks: tx.remarks,
+      rawDate: tx.date
     });
     setStep(3);
   };
@@ -238,7 +470,7 @@ const intendedMonth = useMemo(() => {
     const flat = state.flats.find(f => f.id === selectedFlatId);
 
     try {
-      const newState = updateTransaction(state, editingTx.receiptNo, {
+      const newState = updateTransaction(state, editingTx.id, {
         ownerName,
         mobile: cleanMobile,
         amount,
@@ -259,7 +491,8 @@ const intendedMonth = useMemo(() => {
         mobile: cleanMobile,
         paymentMode,
         isDuplicate: true,
-        remarks: remarks || undefined
+        remarks: remarks || undefined,
+        rawDate: paymentDate
       });
       setStep(3);
       setEditingTx(null);
@@ -275,7 +508,7 @@ const intendedMonth = useMemo(() => {
   const confirmDelete = () => {
     if (!txToDelete) return;
     try {
-      const newState = deleteTransaction(state, txToDelete.receiptNo, txToDelete.date);
+      const newState = deleteTransaction(state, txToDelete.id);
       refreshState(newState);
       if (generatedReceipt?.receiptNo === txToDelete.receiptNo) resetForm();
       setTxToDelete(null);
@@ -312,6 +545,8 @@ const intendedMonth = useMemo(() => {
     setStep(1);
     setSearchTerm('');
     setSelectedFlatId(null);
+    setSelectedMonths([]); // Reset selection
+    setSelectedAdvanceMonths([]); // Reset advance selection
     setOwnerName('');
     setMobile('');
     setAmount(MAINTENANCE_AMOUNT);
@@ -342,7 +577,7 @@ const intendedMonth = useMemo(() => {
 
         // @ts-ignore
         const canvas = await window.html2canvas(element, {
-            scale: 2.5, // High resolution
+            scale: 1.5, // Optimized resolution for fast image generation
             backgroundColor: '#ffffff',
             useCORS: true,
             logging: false
@@ -570,7 +805,7 @@ const intendedMonth = useMemo(() => {
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-slate-800 dark:text-white">{title}</h2>
             {!editingTx && (
-                <div className="flex flex-col items-end animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className="flex flex-col items-end animate-in fade-in slide-in-from-right-4 duration-500 w-[250px]">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Receipt No</span>
                     <span className="bg-yellow-400 text-black text-2xl font-black px-4 py-2 rounded-xl shadow-lg border-2 border-yellow-200 transform -rotate-2">
                         #{previewReceiptNo}
@@ -588,7 +823,7 @@ const intendedMonth = useMemo(() => {
              </div>
           )}
           
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-2xl border border-blue-100 dark:border-blue-800/50 mb-6 flex justify-between items-center group">
+          <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-2xl border border-blue-100 dark:border-blue-800/50 mb-6 flex justify-between items-center group w-[650px]">
             <div>
               <p className="text-xs text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mb-1">Unit Number</p>
               <p className="text-3xl font-black text-blue-900 dark:text-blue-100 tracking-tight">{flatNum}</p>
@@ -603,40 +838,99 @@ const intendedMonth = useMemo(() => {
           </div>
 
           <form onSubmit={editingTx ? handleUpdateTransaction : handlePayment} className="space-y-5">
-            <div>
+            <div className="w-[670px]">
               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Owner Name</label>
               <input
                 required
                 type="text"
                 value={ownerName}
                 onChange={(e) => setOwnerName(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                className="w-[650px] px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                 placeholder="Enter owner name"
               />
             </div>
             
-            <div>
+            <div className="w-[300px]">
               <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Mobile (Optional)</label>
               <input
                 type="tel"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                className="w-[200px] px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                 placeholder="e.g. 9876543210"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="w-[150px]">
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Date</label>
                 <input
                   required
                   type="date"
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-3 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm"
+                  className="w-[150px] px-3 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Outstanding Months</label>
+                <div className="space-y-2">
+                    {outstandingBalances.length === 0 ? (
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic">No outstanding months</p>
+                    ) : (
+                        outstandingBalances.map((b, index) => (
+                            <label key={b.id} className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedMonths.includes(index)}
+                                    onChange={(e) => {
+                                        let newSelected;
+                                        if (e.target.checked) {
+                                            newSelected = [...selectedMonths, index];
+                                        } else {
+                                            newSelected = selectedMonths.filter(i => i !== index);
+                                        }
+                                        recalculatePaymentDetails(newSelected, selectedAdvanceMonths);
+                                    }}
+                                    className="w-4 h-4 text-blue-600 focus:ring-blue-500 border-slate-300 rounded"
+                                />
+                                <span className="text-sm text-slate-700 dark:text-slate-300">{formatMonthKey(b.month)} - ₹{b.amount}</span>
+                            </label>
+                        ))
+                    )}
+                </div>
+
+                {/* Advance Months (Optional) */}
+                {advanceMonthsOptions.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <label className="block text-xs font-bold text-emerald-600 dark:text-emerald-500 uppercase mb-2">Advance Months (Optional)</label>
+                    <div className="space-y-2">
+                        {advanceMonthsOptions.map((opt) => (
+                            <label key={opt.month} className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedAdvanceMonths.includes(opt.month)}
+                                    onChange={(e) => {
+                                        let newAdvance;
+                                        if (e.target.checked) {
+                                            newAdvance = [...selectedAdvanceMonths, opt.month];
+                                        } else {
+                                            newAdvance = selectedAdvanceMonths.filter(m => m !== opt.month);
+                                        }
+                                        recalculatePaymentDetails(selectedMonths, newAdvance);
+                                    }}
+                                    className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-slate-300 rounded"
+                                />
+                                <span className="text-sm text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded text-xs">
+                                    {opt.label} (Advance) - ₹{opt.amount}
+                                </span>
+                            </label>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
               <div>
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Amount</label>
                 <div className="relative">
@@ -659,21 +953,22 @@ const intendedMonth = useMemo(() => {
                   type="number"
                   value={manualReceiptNo}
                   onChange={(e) => setManualReceiptNo(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  className="w-[150px] px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                   placeholder={editingTx ? editingTx.receiptNo.toString() : "Blank = Auto"}
                   disabled={!!editingTx}
                 />
               </div>
               
-              <div>
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Period / Remarks</label>
+              <div className="w-[175px]">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1 w-[100px]">Period / Remarks</label>
                 <input
                   type="text"
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  className="w-[175px] px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                   placeholder="e.g. May-June 2026"
                 />
+                
                 {outstandingMonthsStr && !editingTx && (
                   <p className="text-[10px] font-bold text-red-500 dark:text-red-400 mt-1.5 ml-1 flex items-center">
                     <AlertCircle size={10} className="mr-1" />
@@ -685,7 +980,7 @@ const intendedMonth = useMemo(() => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1">Payment Mode</label>
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 ml-1 w-[300px]">Payment Mode</label>
               <div className="flex space-x-4">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input 
@@ -784,7 +1079,13 @@ const intendedMonth = useMemo(() => {
                       <span className="text-slate-500 font-medium">Received From</span>
                       <span className="font-bold text-slate-900 text-right w-1/2 leading-tight">{generatedReceipt.name}</span>
                   </div>
-                  {generatedReceipt.remarks && (
+                  <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 pt-2">
+                      <span className="text-slate-500 font-medium">Payment Period</span>
+                      <span className="font-black text-slate-900 text-right w-1/2 leading-tight">
+                          {getPaymentPeriodText(generatedReceipt.remarks, generatedReceipt.rawDate)}
+                      </span>
+                  </div>
+                  {generatedReceipt.remarks && generatedReceipt.remarks.trim() !== getPaymentPeriodText(generatedReceipt.remarks, generatedReceipt.rawDate) && (
                     <div className="flex justify-between border-b border-dashed border-slate-200 pb-2 pt-2">
                         <span className="text-slate-500 font-medium">Remarks</span>
                         <span className="font-bold text-slate-900 text-right w-1/2 leading-tight">{generatedReceipt.remarks}</span>
@@ -794,6 +1095,8 @@ const intendedMonth = useMemo(() => {
                       <span className="text-slate-500 font-medium">Payment Mode</span>
                       <span className="font-bold text-slate-900">{generatedReceipt.paymentMode === 'BANK' ? 'BANK TRF' : 'CASH'}</span>
                   </div>
+
+
                   <div className="flex justify-between items-center pt-6">
                       <span className="text-slate-500 font-medium">Status</span>
                       {/* UPDATED: Embossed Green Stamp Look */}
@@ -904,9 +1207,9 @@ const intendedMonth = useMemo(() => {
                   }`}>
                     {flat.flatNumber.split('-')[1]}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-lg font-bold text-slate-800 dark:text-white block leading-tight">{flat.flatNumber}</span>
-                    {flat.ownerName && <span className="block text-sm text-slate-500 dark:text-slate-400">{flat.ownerName}</span>}
+                    {flat.ownerName && <span className="block text-sm text-slate-500 dark:text-slate-400 break-words whitespace-normal">{flat.ownerName}</span>}
                   </div>
                 </div>
                 <div className="text-slate-300 dark:text-slate-600">

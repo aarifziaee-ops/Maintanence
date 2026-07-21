@@ -1,8 +1,8 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 import { AppState } from '../types';
-import { updateFlatsFromCSV, exportDataAsJSON, importDataFromJSON, importTransactionsFromCSV, createSystemSnapshot, restoreSystemSnapshot, getSnapshotTimestamp, syncFromCloud, importFinancialRecordsFromCSV, clearFinancialRecords, uploadCurrentDataToCloud, saveCloudConfig, getCloudConfig, updateTheme, setLastReceiptNo, recoverLegacyData } from '../services/storageService';
-import { downloadSampleCsv, downloadTransactionSampleCsv, downloadFinanceSampleCsv, downloadOutstandingSampleCsv } from '../utils/helpers';
+import { updateFlatsFromCSV, exportDataToExcel, importDataFromExcel, importTransactionsFromCSV, createSystemSnapshot, restoreSystemSnapshot, getSnapshotTimestamp, syncFromCloud, importFinancialRecordsFromCSV, clearFinancialRecords, uploadCurrentDataToCloud, saveCloudConfig, getCloudConfig, updateTheme, setLastReceiptNo, recoverLegacyData } from '../services/storageService';
+import { downloadSampleCsv, downloadTransactionSampleCsv, downloadFinanceSampleCsv } from '../utils/helpers';
 import { Upload, Download, FileText, CheckCircle, AlertTriangle, Database, Save, Receipt, RefreshCw, RotateCcw, History, Smartphone, Cloud, Wallet, Trash2, Lock, ArrowUpCircle, X, ChevronDown, ChevronUp, Moon, Sun } from 'lucide-react';
 import { initFirebase } from '../services/firebaseService';
 
@@ -13,99 +13,11 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const outstandingFileInputRef = useRef<HTMLInputElement>(null);
   const dbInputRef = useRef<HTMLInputElement>(null);
   const txFileInputRef = useRef<HTMLInputElement>(null);
   const financeFileInputRef = useRef<HTMLInputElement>(null);
   
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'idle', message: string }>({ type: 'idle', message: '' });
-  
-  const handleOutstandingCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setStatus({ type: 'idle', message: 'Processing...' });
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const text = event.target?.result as string;
-      if (text) {
-        try {
-          const lines = text.split('\n');
-          const headers = lines[0].split(',');
-          const outstandingData = [];
-          
-          const parseMonthHeader = (header: string): string => {
-            const parts = header.trim().split('-');
-            if (parts.length !== 2) return header;
-            const monthAbbr = parts[0].toLowerCase();
-            const shortYear = parts[1];
-            
-            const MONTHS_MAP: Record<string, string> = {
-              'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
-              'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
-              'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
-            };
-            
-            const monthNum = MONTHS_MAP[monthAbbr];
-            if (!monthNum) return header;
-            
-            const fullYear = `20${shortYear}`;
-            return `${fullYear}-${monthNum}`;
-          };
-
-          for (let i = 1; i < lines.length; i++) {
-            const row = lines[i].trim();
-            if (!row) continue;
-            const values = row.split(',');
-            const flatNum = values[0]?.trim();
-            if (!flatNum) continue;
-
-            const flat = state.flats.find(f => f.flatNumber.trim() === flatNum);
-            if (!flat) {
-              console.warn(`Flat not found: ${flatNum}`);
-              continue;
-            }
-            const flatId = flat.id;
-            
-            for (let j = 1; j < headers.length - 1; j++) {
-              const monthHeader = headers[j];
-              const amountStr = values[j];
-              if (!amountStr || amountStr === '-' || amountStr === '') continue;
-              const amount = parseFloat(amountStr);
-              if (isNaN(amount)) continue;
-              
-              const formattedMonth = parseMonthHeader(monthHeader);
-              outstandingData.push({ flatId, month: formattedMonth, amount });
-            }
-          }
-
-          // Clear old
-          await fetch('/api/clear-outstanding', { method: 'POST' });
-          // Upload new
-          const res = await fetch('/api/outstanding-balances', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ balances: outstandingData })
-          });
-          
-          if (!res.ok) throw new Error('Failed to save data');
-          
-          // Sync state to get latest database values in frontend
-          const syncRes = await fetch('/api/state');
-          if (syncRes.ok) {
-            const syncedData = await syncRes.json();
-            refreshState(syncedData);
-          }
-          
-          setStatus({ type: 'success', message: `Imported ${outstandingData.length} records!` });
-          if (outstandingFileInputRef.current) outstandingFileInputRef.current.value = '';
-        } catch (error) {
-          setStatus({ type: 'error', message: 'Failed to process CSV.' });
-        }
-      }
-    };
-    reader.readAsText(file);
-  };
   const [snapshotTime, setSnapshotTime] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
@@ -252,16 +164,16 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   };
 
   // CSV Bulk Update (Flats)
-  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
         try {
-          const { newState, updatedCount } = await updateFlatsFromCSV(state, text);
+          const { newState, updatedCount } = updateFlatsFromCSV(state, text);
           refreshState(newState);
           setStatus({
             type: 'success',
@@ -285,7 +197,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
         try {
@@ -324,7 +236,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       const text = event.target?.result as string;
       if (text) {
         try {
@@ -358,8 +270,8 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
   // Excel Database Export
   const handleExportDB = () => {
     try {
-      exportDataAsJSON(state);
-      setStatus({ type: 'success', message: 'Database backup created successfully.' });
+      exportDataToExcel(state);
+      setStatus({ type: 'success', message: 'Database exported to Excel successfully.' });
     } catch (e) {
       setStatus({ type: 'error', message: 'Failed to export database.' });
     }
@@ -374,9 +286,9 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
     // The act of selecting a file is deliberate enough.
 
     try {
-      const newState = await importDataFromJSON(file);
+      const newState = await importDataFromExcel(file);
       refreshState(newState);
-      setStatus({ type: 'success', message: 'Database restored successfully.' });
+      setStatus({ type: 'success', message: 'Database restored from Excel successfully.' });
     } catch (e) {
       console.error(e);
       // Show the specific error message
@@ -482,7 +394,132 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
       )}
 
       {/* SECTION: CLOUD DATABASE */}
-      
+      <section>
+        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
+          <Cloud size={16} className="mr-2" />
+          Cloud Database (Firebase)
+        </h3>
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+           
+           {/* Connection Header */}
+           <div className="mb-4">
+             <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Sync & Backup.
+                </p>
+                {cloudConnected ? (
+                  <span className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-bold px-2 py-1 rounded flex items-center">
+                     <Lock size={12} className="mr-1" />
+                     Connected
+                  </span>
+                ) : (
+                  <span className="text-xs bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 font-bold px-2 py-1 rounded">
+                     Not Connected
+                  </span>
+                )}
+             </div>
+           </div>
+
+           {/* Manual Configuration Form */}
+           {(!cloudConnected || showConfigForm) && (
+              <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 animate-in fade-in">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-3">Configuration</h4>
+                  <div className="space-y-3">
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">API Key</label>
+                          <input 
+                            type="text" 
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="AIzaSy..."
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Project ID</label>
+                          <input 
+                            type="text" 
+                            value={projectId}
+                            onChange={(e) => setProjectId(e.target.value)}
+                            placeholder="my-project-id"
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Auth Domain (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={authDomain}
+                            onChange={(e) => setAuthDomain(e.target.value)}
+                            placeholder="my-project.firebaseapp.com"
+                            className="w-full text-sm p-2 border border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-700 dark:text-white"
+                          />
+                      </div>
+                      <button 
+                        onClick={handleConnectCloud}
+                        className="w-full bg-slate-800 dark:bg-black text-white font-bold text-sm py-2 rounded hover:bg-slate-900 transition-colors"
+                      >
+                        Connect
+                      </button>
+                  </div>
+              </div>
+           )}
+
+           {/* Actions if Connected */}
+           {cloudConnected && !showConfigForm && (
+               <div className="space-y-3">
+                   <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={handleCloudSync}
+                            className="flex items-center justify-center space-x-2 bg-blue-600 text-white py-3 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-none transition-colors"
+                        >
+                            <RefreshCw size={18} />
+                            <span>Sync / Download</span>
+                        </button>
+                        
+                        <button 
+                            onClick={() => {
+                            if(window.confirm("Force Backup: This will overwrite cloud data with current local data. Continue?")) {
+                                handleCloudUpload();
+                            }
+                            }}
+                            className="flex items-center justify-center space-x-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 py-3 rounded-lg font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            <ArrowUpCircle size={18} />
+                            <span>Force Backup</span>
+                        </button>
+                   </div>
+                   
+                   <button 
+                        onClick={handleDisconnectCloud}
+                        className="w-full text-xs text-red-500 hover:text-red-700 underline text-center"
+                   >
+                       Disconnect / Edit Configuration
+                   </button>
+               </div>
+           )}
+           
+           <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <button 
+                    onClick={() => {
+                        const legacyData = recoverLegacyData();
+                        if (legacyData) {
+                            if (window.confirm("Found legacy data with more records. Overwrite current state and sync to cloud?")) {
+                                refreshState(legacyData);
+                            }
+                        } else {
+                            alert("No richer legacy data found on this device.");
+                        }
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 py-3 rounded-lg font-bold text-sm hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+                >
+                    <History size={18} />
+                    <span>Emergency: Recover Missing Data</span>
+                </button>
+                <p className="text-xs text-slate-500 mt-2 text-center">Use this if you lost data during recent updates</p>
+           </div>
+        </div>
+      </section>
 
       {/* SECTION: SYSTEM RESTORE POINT */}
       <section>
@@ -525,7 +562,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
       <section>
         <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
           <Database size={16} className="mr-2" />
-          Database Backup & Restore
+          Database Management (Excel)
         </h3>
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mb-6">
           <div className="p-5 border-b border-slate-100 dark:border-slate-800">
@@ -545,7 +582,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
                 <Save size={24} />
               </div>
               <span className="font-bold text-slate-700 dark:text-slate-200">Backup DB</span>
-              <span className="text-xs text-slate-400 mt-1">Export as JSON</span>
+              <span className="text-xs text-slate-400 mt-1">Export to .xlsx</span>
             </button>
 
             {/* Import Button */}
@@ -553,7 +590,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
               <input
                 ref={dbInputRef}
                 type="file"
-                accept=".json"
+                accept=".xlsx, .xls"
                 onChange={handleImportDB}
                 onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -562,7 +599,7 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
                 <Upload size={24} />
               </div>
               <span className="font-bold text-slate-700 dark:text-slate-200">Restore DB</span>
-              <span className="text-xs text-slate-400 mt-1">Import from JSON</span>
+              <span className="text-xs text-slate-400 mt-1">Import from .xlsx</span>
             </div>
           </div>
         </div>
@@ -615,48 +652,6 @@ const Settings: React.FC<SettingsProps> = ({ state, refreshState }) => {
               >
                 <Upload size={18} />
                 <span>Upload Accounts CSV</span>
-              </label>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SECTION: OUTSTANDING IMPORT */}
-      <section>
-        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase mb-3 flex items-center">
-          <Database size={16} className="mr-2" />
-          Import Outstanding Data (CSV)
-        </h3>
-        
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6">
-          <p className="text-sm text-slate-500 mb-4 leading-relaxed">
-            Bulk upload month-wise outstanding maintenance balances.
-          </p>
-          
-          <div className="space-y-3">
-             <button 
-              onClick={downloadOutstandingSampleCsv}
-              className="flex items-center justify-center space-x-2 w-full py-3 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 font-medium hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm"
-            >
-              <Download size={16} />
-              <span>Download CSV Template</span>
-            </button>
-
-            <div className="relative">
-              <input
-                ref={outstandingFileInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleOutstandingCsvUpload}
-                className="hidden"
-                id="outstanding-csv-upload"
-              />
-              <label 
-                htmlFor="outstanding-csv-upload"
-                className="flex items-center justify-center space-x-2 w-full py-3 bg-emerald-600 text-white rounded-xl font-medium cursor-pointer hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200 dark:shadow-none"
-              >
-                <Upload size={18} />
-                <span>Upload Outstanding CSV</span>
               </label>
             </div>
           </div>

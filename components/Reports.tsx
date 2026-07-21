@@ -79,38 +79,47 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
 
   const rangeReport = useMemo(() => {
     if (!fromDate || !toDate) return [];
-    return state.transactions.filter(t => {
+    return [...state.transactions].filter(t => {
       const txDate = t.date.split('T')[0];
       return txDate >= fromDate && txDate <= toDate;
-    });
+    }).sort((a, b) => b.receiptNo - a.receiptNo);
   }, [state.transactions, fromDate, toDate]);
 
   const rangeTotal = rangeReport.reduce((acc, curr) => acc + curr.amount, 0);
 
   // Filter flats that have NOT paid in the selected month
   const unpaidFlats = useMemo(() => {
-    const monthTransactions = getTransactionsForMonth(state.transactions, unpaidMonth);
-    const paidFlatIds = new Set(monthTransactions.map(t => t.flatId));
-    
-    return state.flats.filter(f => !paidFlatIds.has(f.id));
-  }, [state.flats, state.transactions, unpaidMonth]);
+    return state.flats.filter(flat => {
+      const hasOutstandingInDb = state.outstandingBalances?.some(
+        (ob) => ob.flatId === flat.id && ob.month === unpaidMonth
+      );
+      return hasOutstandingInDb;
+    });
+  }, [state.flats, state.outstandingBalances, unpaidMonth]);
 
   // Calculate Billing Data
   const billingData = useMemo(() => {
-    // User requested starting from November 2025
-    const epochYear = 2025;
-    const epochMonth = 11;
-    
     const [selYearStr, selMonthStr] = billingMonth.split('-');
-    const selYear = parseInt(selYearStr);
-    const selMonth = parseInt(selMonthStr);
+    const selYear = parseInt(selYearStr, 10);
+    const selMonth = parseInt(selMonthStr, 10);
     
     return state.flats.map(flat => {
-      // Filter transactions BEFORE the selected billing month
-      const pastTransactions = state.transactions.filter(t => t.date.slice(0, 7) < billingMonth);
+      // Find all outstanding balances for this flat from state.outstandingBalances that are BEFORE the selected billingMonth (YYYY-MM)
+      const flatOutstanding = state.outstandingBalances?.filter((ob) => ob.flatId === flat.id && ob.month < billingMonth) || [];
       
-      const breakdown = getOutstandingBreakdown(flat, pastTransactions, epochYear, epochMonth, selYear, selMonth);
-      const previousArrears = breakdown.reduce((sum, b) => sum + b.amount, 0);
+      const breakdown = flatOutstanding.map((ob) => {
+        const [yearStr, monthStr] = ob.month.split('-');
+        const year = parseInt(yearStr, 10);
+        const monthIndex = parseInt(monthStr, 10) - 1;
+        const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        return {
+          monthName: MONTHS_LONG[monthIndex],
+          amount: ob.amount,
+          year: year
+        };
+      });
+      
+      const previousArrears = flatOutstanding.reduce((sum, ob) => sum + ob.amount, 0);
       const currentMonthDue = calculateMaintenanceForMonth(flat, selYear, selMonth);
       const totalPayable = previousArrears + currentMonthDue;
       
@@ -122,7 +131,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
         breakdown
       };
     }).sort((a, b) => a.flatNumber.localeCompare(b.flatNumber));
-  }, [state.flats, state.transactions, billingMonth]);
+  }, [state.flats, state.outstandingBalances, billingMonth]);
 
   const bankTransferData = useMemo(() => {
     return state.transactions.filter(t => 
@@ -264,7 +273,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                 <div className="w-10 shrink-0">No</div>
                 <div className="w-20 shrink-0">Date</div>
                 <div className="w-16 shrink-0">Flat</div>
-                <div className="flex-1 min-w-0 px-2">Owner / Remarks</div>
+                <div className="flex-1 px-2">Owner / Remarks</div>
                 <div className="w-20 shrink-0 text-right">Amount</div>
                 <div className="w-10 shrink-0 text-center no-print"></div>
              </div>
@@ -277,7 +286,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
                     <div className="w-10 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
                     <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatShortDate(t.date)}</div>
                     <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
-                    <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">
+                    <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">
                       {t.ownerName}
                       {t.remarks && <div className="text-[10px] text-slate-400 font-normal mt-0.5">{t.remarks}</div>}
                     </div>
@@ -382,7 +391,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
         <div className="flex items-center bg-black p-4 border-b border-black text-[10px] font-black text-white uppercase tracking-widest">
            <div className="w-20 shrink-0">Flat</div>
-           <div className="flex-1 min-w-0 px-2">Owner</div>
+           <div className="flex-1 px-2">Owner</div>
            <div className="w-24 shrink-0 text-right">Amount</div>
            <div className="w-10 shrink-0 text-center no-print"></div>
         </div>
@@ -391,7 +400,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
           {unpaidFlats.map(flat => (
             <div key={flat.id} className="flex items-center p-4 text-xs">
                <div className="w-20 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
-               <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+               <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
                <div className="w-24 shrink-0 text-right font-black text-red-600 dark:text-red-400 print:text-black">
                   {formatCurrency(calculateMaintenanceForMonth(flat, parseInt(unpaidMonth.split('-')[0]), parseInt(unpaidMonth.split('-')[1])))}
                </div>
@@ -583,7 +592,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
           <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
              <div className="w-16 shrink-0">Flat</div>
-             <div className="flex-1 min-w-0 px-2">Owner</div>
+             <div className="flex-1 px-2">Owner</div>
              <div className="w-20 shrink-0 text-right">Arrears</div>
              <div className="w-20 shrink-0 text-right">Current</div>
              <div className="w-24 shrink-0 text-right">Total Due</div>
@@ -594,7 +603,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
             {billingData.map(flat => (
               <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
                  <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
-                 <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+                 <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
                  <div className={`w-20 shrink-0 text-right font-mono ${flat.previousArrears > 0 ? 'text-red-600 dark:text-red-400' : (flat.previousArrears < 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400')} print:text-black`}>
                     {flat.previousArrears !== 0 ? formatCurrency(flat.previousArrears) : '-'}
                  </div>
@@ -641,18 +650,24 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
   };
 
   const renderOutstandingReport = () => {
-    const today = new Date();
-    const selYear = today.getFullYear();
-    const selMonth = today.getMonth() + 1;
-    // User requested starting from November 2025
-    const epochYear = 2025;
-    const epochMonth = 11;
-    
     let totalOutstanding = 0;
     
     const outstandingData = state.flats.map(flat => {
-      const breakdown = getOutstandingBreakdown(flat, state.transactions, epochYear, epochMonth, selYear, selMonth);
-      const arrears = breakdown.reduce((sum, b) => sum + b.amount, 0);
+      const flatOutstanding = state.outstandingBalances?.filter((ob) => ob.flatId === flat.id) || [];
+      
+      const breakdown = flatOutstanding.map((ob) => {
+        const [yearStr, monthStr] = ob.month.split('-');
+        const year = parseInt(yearStr, 10);
+        const monthIndex = parseInt(monthStr, 10) - 1;
+        const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        return {
+          monthName: MONTHS_LONG[monthIndex],
+          amount: ob.amount,
+          year: year
+        };
+      });
+      
+      const arrears = flatOutstanding.reduce((sum, ob) => sum + ob.amount, 0);
       
       return {
         ...flat,
@@ -661,7 +676,6 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
       };
     }).filter(f => f.arrears > 0).sort((a, b) => b.arrears - a.arrears);
 
-    
     totalOutstanding = outstandingData.reduce((sum, f) => sum + f.arrears, 0);
     
     return (
@@ -691,7 +705,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
           <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
              <div className="w-16 shrink-0">Flat</div>
-             <div className="flex-1 min-w-0 px-2">Owner</div>
+             <div className="flex-1 px-2">Owner</div>
              <div className="w-32 shrink-0 text-right">Outstanding</div>
              <div className="w-10 shrink-0 text-center no-print"></div>
           </div>
@@ -700,7 +714,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
             {outstandingData.map(flat => (
               <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
                  <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
-                 <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+                 <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
                  <div className="w-32 shrink-0 text-right font-black text-red-600 dark:text-red-400 print:text-black">
                     {formatCurrency(flat.arrears)}
                  </div>
@@ -763,7 +777,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
           <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
              <div className="w-16 shrink-0">Flat</div>
-             <div className="flex-1 min-w-0 px-2">Name</div>
+             <div className="flex-1 px-2">Name</div>
              <div className="w-32 shrink-0">Telephone</div>
              <div className="w-10 shrink-0 text-center no-print"></div>
           </div>
@@ -772,7 +786,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
             {filteredFlats.map(flat => (
               <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
                  <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
-                 <div className="flex-1 min-w-0 px-2 truncate text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
+                 <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
                  <div className="w-32 shrink-0 text-slate-600 dark:text-slate-300 print:text-black font-mono">
                     {flat.mobile || '-'}
                  </div>
@@ -852,7 +866,7 @@ const renderBankTransferReport = () => {
                   <div className="w-12 shrink-0">Recpt</div>
                   <div className="w-20 shrink-0">Date</div>
                   <div className="w-16 shrink-0">Flat</div>
-                  <div className="flex-1 min-w-0 px-2">Owner</div>
+                  <div className="flex-1 px-2">Owner</div>
                   <div className="w-24 shrink-0 text-right">Amount</div>
                </div>
                
@@ -864,7 +878,7 @@ const renderBankTransferReport = () => {
                       <div className="w-12 shrink-0 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{t.receiptNo}</div>
                       <div className="w-20 shrink-0 text-slate-500 dark:text-slate-400 print:text-black">{formatShortDate(t.date)}</div>
                       <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{t.flatNumber}</div>
-                      <div className="flex-1 min-w-0 px-2 font-medium text-slate-600 dark:text-slate-300 print:text-black truncate">
+                      <div className="flex-1 px-2 font-medium text-slate-600 dark:text-slate-300 print:text-black break-words">
                         {t.ownerName}
                       </div>
                       <div className="w-24 shrink-0 text-right font-black text-indigo-600 dark:text-indigo-400 print:text-black">

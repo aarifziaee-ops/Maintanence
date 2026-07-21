@@ -318,6 +318,22 @@ export const downloadSampleCsv = () => {
 };
 
 /**
+ * Downloads a sample CSV for bulk importing outstanding maintenance.
+ */
+export const downloadOutstandingSampleCsv = () => {
+  const csvContent = "Flat,Nov-25,Dec-25,Jan-26,Feb-26,Mar-26,Apr-26,May-26,Jun-26,Jul-26,TOTAL\nB-0904,-,-,2000,2000,2000,2800,2800,2800,2800,17200\nB-1101,-,-,-,-,-,-,-,2800,2800,5600";
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", "outstanding_template.csv");
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+/**
  * Downloads a sample CSV for bulk importing historical transactions.
  */
 export const downloadTransactionSampleCsv = () => {

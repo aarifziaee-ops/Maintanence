@@ -27,46 +27,31 @@ const App: React.FC = () => {
   const [financeRecordToEdit, setFinanceRecordToEdit] = useState<FinancialRecord | null>(null);
 
   useEffect(() => {
-    // Load data from local storage on mount
-    const data = loadData();
-    setState(data);
-
-    // Apply theme
-    if (data.theme === 'DARK') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-
-    // Auto-pull from cloud
-    const autoPullFromCloud = async () => {
-      const config = getCloudConfig();
-      if (config) {
-        setSyncStatus('SYNCING');
-        try {
-          const cloudData = await syncFromCloud();
-          if (cloudData) {
-            setState(cloudData);
+    // Initial Load from Cloud SQL Backend
+    const initApp = async () => {
+      setSyncStatus('SYNCING');
+      try {
+        const cloudData = await syncFromCloud();
+        if (cloudData) {
+          setState(cloudData);
+          if (cloudData.theme === 'DARK') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
           }
-          setSyncStatus('SYNCED');
-        } catch (e) {
-          setSyncStatus('ERROR');
         }
+        setSyncStatus('SYNCED');
+      } catch (e) {
+        console.error("Failed to sync from cloud", e);
+        setSyncStatus('ERROR');
       }
     };
-    autoPullFromCloud();
+    initApp();
 
-    // Listen for storage events (cross-tab synchronization)
+    // Listen for cross-tab synchronization
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) {
-        const newData = loadData();
-        setState(newData);
-        // Apply theme on storage change too
-        if (newData.theme === 'DARK') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
+        initApp();
       }
     };
 

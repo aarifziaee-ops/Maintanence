@@ -1,0 +1,231 @@
+		0	flat-0	PAID	FALSE	kalpatru sahakari path sanstha ltd (Mangesh Chindarkar) 	9769915542			B-0801	0
+		0	flat-1	PAID	FALSE	Dattaram Babu Birambole	8108520482			B-0802	0
+		0	flat-2	PAID	FALSE	Ankita Atul Khochre	9967719667			B-0803	0
+		0	flat-3	PAID	TRUE	Rajesh Mahadik	7045182432			B-0806	0
+		0	flat-4	PAID	TRUE	Sitaram Bandhu Ambre	7028280618			B-0807	0
+		0	flat-5	PAID	FALSE	Sudhir Motiram Kudalkar	9326595690			B-0808	0
+		0	flat-6	PAID	TRUE	Vijay Bhujhang Rane	9969541738			B-0901	0
+		0	flat-7	PAID	FALSE	Mahendra krishna Sawant	9326487015			B-0902	0
+		0	flat-8	PAID	TRUE	Rajendra Ramhari Jaiswal	9152635981			B-0903	0
+		0	flat-9	PAID	FALSE	Shobha Raju Wagheela	9152635981			B-0904	0
+		0	flat-10	PAID	TRUE	Tushar Gajanan Raut	9820065408			B-0905	0
+		0	flat-11	PAID	TRUE	Mohammad Asad Mujtaba Siddiqui	8879048022			B-0906	0
+		0	flat-12	PAID	FALSE	Bhikaji Shantaram Gaokar	9082207681			B-0907	0
+		0	flat-13	PAID	TRUE	Sanjay DadaBhau Nikam	8080241373			B-0908	0
+		0	flat-14	PAID	FALSE	vinaywadi gramastha mandal (Somnath Kasar) 	9769307281			B-1001	0
+		0	flat-15	PAID	FALSE	Ganpat Sakharam Chavan	9702427611			B-1002	0
+Mh08 B4 4417, MH09 EN 8866		0	flat-16	PAID	TRUE	Santosh Bhalekar(bhalekar gramast mandal)	9137477849			B-1003	2
+		0	flat-17	PAID	TRUE	Dayanand Hari Patil	9930929755			B-1004	0
+		0	flat-18	PAID	FALSE	Gavase Aleyachewadi Gramast Mandal	7506244379			B-1005	0
+		0	flat-19	PAID	FALSE	Babaji Rama Rane( devkandgoan gramastha mandal)	8850577751			B-1006	0
+		0	flat-20	PAID	TRUE	Vijay Jagannath Gawde	9969114332			B-1007	0
+		0	flat-21	PAID	FALSE	Mohan Ganpat Hande	9969619264			B-1008	0
+		0	flat-22	PAID	FALSE	Sunil Ghune	9819110211			B-1101	0
+		0	flat-23	PAID	TRUE	Manju Jitendra Gupta	9820694410			B-1102	0
+		0	flat-24	PAID	FALSE	Shabbir H Oliya	9664826370			B-1103	0
+		0	flat-25	PAID	FALSE	Alka Shivram Bangar	9820084598			B-1104	0
+		0	flat-26	PAID	FALSE	Suresh B Mane	8208003760			B-1105	0
+		0	flat-27	PAID	FALSE	Santosh Raghunath Narkar	9769931871			B-1106	0
+		0	flat-28	PAID	FALSE	Kishori Rajaram Pange	9870175483			B-1107	0
+		0	flat-29	PAID	TRUE	Prakash Aatmaram Patankar	9619224490			B-1108	0
+		0	flat-30	PAID	FALSE	Nooruddin jethajwala	9000678441			B-1201	0
+		0	flat-31	PAID	TRUE	Shaikh Abizar bhai lakdawala	9820913967			B-1202	0
+		0	flat-32	PAID	TRUE	Tasneem Jariwala	9820934052			B-1203	0
+		0	flat-33	PAID	TRUE	Fatima sidhpurwala	9820024967			B-1204	0
+		0	flat-34	UNPAID	FALSE	close				B-1205	0
+		0	flat-35	PAID	FALSE	Mamta Mahindra Sawant	8369885337			B-1206	0
+		0	flat-36	PAID	FALSE	Kafiya Parveen Shaikh	9082631571			B-1207	0
+		0	flat-37	PAID	FALSE	Hatim Mithaiwala	9967545306			B-1208	0
+		0	flat-38	PAID	FALSE	Mohammed Ibrahim Sheikh	9920495281			B-1301	0
+		0	flat-39	UNPAID	TRUE	close				B-1302	1
+		0	flat-40	PAID	TRUE	Sharafat Ali Mukri	9702759778			B-1303	0
+		0	flat-41	PAID	FALSE	Sharfuddin Khan	9819125193			B-1304	0
+		0	flat-42	PAID	TRUE	Arif Liyakat Mukri	8657722436			B-1305	0
+		0	flat-43	PAID	FALSE	Rabiya M. Naik	9222775153			B-1306	0
+		0	flat-44	PAID	FALSE	Afzal Waghoo (Asif Ali Kondkar)	9029901470			B-1307	0
+		0	flat-45	PAID	FALSE	Siraj M Kazi	9322912100			B-1308	0
+		0	flat-46	PAID	FALSE	Sajid Liyakat Mukri	7900046246			B-1401	0
+		0	flat-47	PAID	FALSE	Jamila Alim Waghoo	9892323543			B-1402	0
+		0	flat-48	PAID	TRUE	Mukhtar Abbas Mungi	7977844864			B-1403	0
+		0	flat-49	PAID	FALSE	Mohammed Tole	9004594996			B-1404	0
+		0	flat-50	PAID	TRUE	Jamaat ul Muslimeen (Abdul Rehman Thange / Aziz Barmare)	9221768090			B-1405	0
+		0	flat-51	PAID	TRUE	Aqila Ata Hussain	7303713622			B-1406	0
+		0	flat-52	PAID	FALSE	Jamaluddin Wadekar	8657145382			B-1407	0
+		0	flat-53	PAID	FALSE	Tahirabi Abdul Razzak Mulla	9833061236			B-1408	0
+		0	flat-54	PAID	FALSE	yasmeen Kadar Agwan	8591103362			B-1501	0
+		0	flat-55	PAID	FALSE	Azizullah Shorat Ali Hajjam	9820763593			B-1502	0
+		0	flat-56	PAID	FALSE	Premlata Naresh Shahu	9869600198			B-1503	0
+		0	flat-57	PAID	FALSE	Eknath Sangvekar	8369886830			B-1506	0
+		0	flat-58	PAID	FALSE	Hayatbi Usman Jaitapkar	9892877223			B-1507	0
+		0	flat-59	PAID	FALSE	Gulam Ali Khan	9821467460			B-1508	0
+		0	flat-60	PAID	TRUE	Abida Imtiyaz Kazi				B-1601	0
+		0	flat-61	PAID	FALSE	Abdul Razak Malim	9223511661			B-1602	0
+		0	flat-62	PAID	FALSE	Israr Ahmed Khan	9969462736			B-1603	0
+		0	flat-63	PAID	TRUE	Imran Agwan	9967000050			B-1604	0
+		0	flat-64	PAID	FALSE	Abdul Wahab Shaikh	9870835616			B-1605	0
+		0	flat-65	PAID	TRUE	Khurshid Ahmed Shaikh	9821106721			B-1606	0
+		0	flat-66	PAID	FALSE	Mohammad Akram Abdul Hai Bastivi	9819271749			B-1607	0
+		0	flat-67	PAID	FALSE	Abdul Qadir Shaikh	9869079616			B-1608	0
+		0	flat-68	PAID	FALSE	Rashida Yusuf Hajju	9224324032			B-1701	0
+		0	flat-69	PAID	FALSE	Liyakat Ali Mohammed Khan	8108211712			B-1702	0
+		0	flat-70	PAID	FALSE	Munira Karim Waghoo	9653129200			B-1703	0
+		0	flat-71	PAID	FALSE	Haneef Kadar Agwan	9987570045			B-1704	0
+		0	flat-72	PAID	TRUE	Munira Karim Waghoo	9653129200			B-1705	0
+		0	flat-73	PAID	FALSE	Hamida Khan	9920848443			B-1706	0
+		0	flat-74	PAID	FALSE	Imran Siddiqui	9821745940			B-1707	0
+		0	flat-75	PAID	TRUE	Sajid Karim Thakur	9820583478			B-1708	0
+		0	flat-76	PAID	TRUE	Ebrahim Abbas Yahoo	9699655674			B-1801	0
+		0	flat-77	PAID	FALSE	Nafis Ahmed Khan	9321985350			B-1802	0
+		0	flat-78	PAID	FALSE	Rabiya Khatoon Nisar Ahmed Qureshi	9773728523			B-1803	0
+		0	flat-79	PAID	FALSE	Abdul Razzak Khan	8108786173			B-1804	1
+		0	flat-80	PAID	TRUE	Mushtaq noor Mohammed Shaikh	9821444043			B-1805	0
+		0	flat-81	PAID	FALSE	Abdul Suleman Agwan	8369529658			B-1806	0
+		0	flat-82	PAID	TRUE	Aslam Balbale	9892992907			B-1807	0
+		0	flat-83	PAID	FALSE	Imran Nazir Mapari	8082433491			B-1808	0
+		0	flat-84	PAID	TRUE	Mohammed Haneef Sayyed	8979529554			B-1901	0
+		0	flat-85	PAID	TRUE	Shabnam Imtiyaz Malim	9769223582			B-1902	1
+		0	flat-86	PAID	FALSE	Nadim Ali Mira	9372676416			B-1903	0
+		0	flat-87	PAID	FALSE	Ejaz Abdul Razzak Malim	9022343603			B-1904	0
+		0	flat-88	PAID	FALSE	Fatima Kutubuddin Bakkar	8650241022			B-1905	0
+		0	flat-89	PAID	FALSE	Saeed Khalique Mimli	9820773577			B-1906	0
+		0	flat-90	PAID	FALSE	Jahida Mohidin Malim	9987651839			B-1907	0
+		0	flat-91	PAID	FALSE	Naseema Abdus Sattar Nakhwa	8422968805			B-1908	0
+		0	flat-92	PAID	FALSE	Mohammed Khalid Sayyed	9920347006			B-2001	0
+		0	flat-93	PAID	TRUE	Razia Shoukat Malim/ Shoukat Adam Malim	9222062959			B-2002	0
+		0	flat-94	PAID	FALSE	Zameer Ahmed Siddiqui	8655111093			B-2003	0
+		0	flat-95	UNPAID	FALSE	close				B-2004	0
+		0	flat-96	PAID	TRUE	Farah Mohammed Thakur	9323825179			B-2005	2
+		0	flat-97	PAID	FALSE	Arifa Anwar Kazi / Asif Shaikh Ali	9967822407			B-2006	0
+		0	flat-98	PAID	TRUE	Ismail Abbas Mukri	9920396421			B-2007	0
+		0	flat-99	PAID	FALSE	A Rehman A Monye	9224653656			B-2008	0
+		0	flat-100	PAID	TRUE	Gulshan Rafique Ahmed Kazi	7400145402			B-2101	0
+		0	flat-101	PAID	FALSE	Farzana Mehmood Shaikh	9769950256			B-2102	0
+		0	flat-102	PAID	FALSE	Altaf Adil Choudhary	9824246911			B-2103	0
+		0	flat-103	PAID	FALSE	Mohammed Shafi Nagori	9224611923			B-2104	0
+		0	flat-104	PAID	FALSE	Mohd faizuddin mohd iliyasuddin	7336007848			B-2105	0
+		0	flat-105	PAID	FALSE	Salim Abdul Razzak Sayyed	9004574051			B-2106	0
+		0	flat-106	PAID	FALSE	Hafiz Mohammed Khan	9137124123			B-2107	0
+		0	flat-107	PAID	FALSE	Moinuddin Ali Darvan	8657624040			B-2108	0
+		0	flat-108	PAID	FALSE	Shabana M Jagirdaar	9702244757			B-2301	0
+		0	flat-109	PAID	TRUE	Farooque Ahmed	9867471259			B-2302	0
+		0	flat-110	PAID	FALSE	Shatish shanbag	7019510468			B-2303	0
+		0	flat-111	PAID	FALSE	Annapurna Pandey	9820488951			B-2306	0
+		0	flat-112	UNPAID	FALSE	Salimuddin Abdul sattar Waghu / aiman alim waghu ( closed) 				B-2307	0
+		0	flat-113	PAID	FALSE	Hamza Saifuddin Poonawala	9619076547			B-2308	0
+	8329906054	0	flat-114	PAID	TRUE	Kalimulla Usman Kasu	9702162234	Imran		B-2401	0
+	9967642290	0	flat-115	PAID	TRUE	Fahim Kasam Ibrahim Balbale	9867786191	Danish		B-2402	1
+		0	flat-116	PAID	TRUE	Rayees Abdul Rehman Boblai	9820773577			B-2403	0
+		0	flat-117	PAID	FALSE	Rayees Abdul Rehman Boblai	9820773577			B-2404	0
+		0	flat-118	PAID	FALSE	Shaukat Usman Mukri	8286320711			B-2405	0
+		0	flat-119	PAID	FALSE	Faizan Abdur Rehman Bargir	8082368967			B-2406	0
+		0	flat-120	PAID	FALSE	Fatimabi Abdul Hamid Waghoo	9619048121			B-2407	0
+	9324932625	0	flat-121	PAID	TRUE	Haseena H Lambe	9930462106	Sanny sayyad		B-2408	1
+		0	flat-122	PAID	FALSE	Majeebullah haji Chaudhary	8433897892			B-2501	0
+		0	flat-123	PAID	FALSE	Majeebullah haji Chaudhary	8433897892			B-2502	0
+		0	flat-124	PAID	FALSE	Ashraf Ibrahim Karvinkar	9820961623			B-2503	0
+		0	flat-125	PAID	FALSE	Abdul Gani Husain Attar	9892177505			B-2504	0
+		0	flat-126	PAID	FALSE	Firoz A Udaipurwala	9892245097			B-2505	0
+		0	flat-127	PAID	FALSE	Rehana Shamsuddin shaikh	9323423060			B-2506	0
+		0	flat-128	PAID	TRUE	Shabbir Abbas Bhai Sapatwala	9869905700			B-2507	0
+		0	flat-129	UNPAID	FALSE	Aysha Ismail Murad (closed) 				B-2508	0
+		0	flat-130	PAID	TRUE	Mohammed Salim Abbas Kazi	7045760207			B-2601	0
+		0	flat-131	PAID	TRUE	Mohammed Salim Abbas Kazi	7045760207			B-2602	0
+		0	flat-132	PAID	FALSE	Ejaj Mohammed Khan	9867386747			B-2603	0
+		0	flat-133	PAID	FALSE	Imran Siddiqui	9821745940			B-2604	0
+		0	flat-134	PAID	TRUE	Aziz Shaikh [Musab]	9773581986			B-2605	0
+		0	flat-135	PAID	TRUE	Rizwan Rakhangi	9619048121			B-2606	0
+		0	flat-136	PAID	TRUE	Zaibunnissa Rakhangi	9715054676			B-2607	0
+		0	flat-137	PAID	TRUE	juned Rakhangi	9594364051			B-2608	0
+		0	flat-138	PAID	FALSE	Imran Girkar	8898388928			B-2701	0
+		0	flat-139	PAID	FALSE	Imran Girkar	8898388928			B-2702	0
+		0	flat-140	PAID	FALSE	Anwar Girkar	9029498165			B-2703	0
+		0	flat-141	PAID	FALSE	Shama Sharfuddin Mukri	9773868658			B-2704	0
+		0	flat-142	PAID	FALSE	Nizamuddin Khan	9029176349			B-2705	0
+		0	flat-143	PAID	FALSE	Dilshad Nisar Mukri	9029042758			B-2706	0
+		0	flat-144	PAID	FALSE	Kafiya Parven Shaikh	7977578498			B-2707	0
+		0	flat-145	PAID	TRUE	Mohsin M Mukri	9773580859			B-2708	0
+		0	flat-146	PAID	TRUE	Umrethwala Mansoor Ebrahim	9969667518			B-2801	0
+MH01 D4 4091		0	flat-147	PAID	FALSE	Raziya Bashir Khan	8369804892			B-2802	1
+		0	flat-148	PAID	TRUE	Riyaz Abdus Sattar kazi	8286682016			B-2803	0
+		0	flat-149	PAID	FALSE	Abdus sattar Barmare	8286954620			B-2804	0
+		0	flat-150	PAID	FALSE	Afroz Ashfaq Sayyed	8355862219			B-2805	0
+		0	flat-151	UNPAID	FALSE	banu Ibrahim khan (Court Case)(close)				B-2806	0
+		0	flat-152	PAID	TRUE	inayat kazi	9833210072			B-2807	0
+		0	flat-153	PAID	FALSE	Farida Rashid Agha	9773157792			B-2808	0
+		0	flat-154	PAID	FALSE	Fahmida A khan	9372887837			B-2901	0
+		0	flat-155	PAID	FALSE	Haneef Kadar Agwan	9987570045			B-2902	0
+		0	flat-156	UNPAID	FALSE	Sadiq Ratansi (close)				B-2903	0
+		0	flat-157	PAID	FALSE	Shabina Altaf Vasta	9224678109			B-2904	0
+		0	flat-158	PAID	TRUE	Madrasa Talimul Quraan	9821384777			B-2905	0
+		0	flat-159	PAID	FALSE	mohammed Tole	9004594996			B-2906	0
+		0	flat-160	PAID	TRUE	jamat ul muslimeen (Mohammad Iqbal Tole / Abbas Mujawar)	9221768090			B-2907	0
+		0	flat-161	PAID	TRUE	Mohammed Hussain Jumma	9819165868			B-2908	0
+		0	flat-162	PAID	FALSE	Abdul Rauf Mohammed Khan	9136770087			B-3001	0
+		0	flat-163	PAID	TRUE	jamat ul muslimeen ( Mohiuddin Barmare / Ismail Kazi)	9221768090			B-3002	0
+		0	flat-164	PAID	FALSE	Jayvanti S Gala	9833585758			B-3003	0
+		0	flat-165	PAID	TRUE	Sushil S Gala	9322956954			B-3006	0
+		0	flat-166	PAID	FALSE	Noor Mohammed Khan	8879151312			B-3007	0
+		0	flat-167	PAID	FALSE	Ebrahim Abbas Yahoo	9699655674			B-3008	0
+		0	flat-168	PAID	TRUE	Shaikh Abizar bhai Lakdawala	9820913967			B-3101	0
+		0	flat-169	PAID	FALSE	Shabnam Abbas Merchant	9820394250			B-3102	0
+		0	flat-170	PAID	FALSE	Sabera Jam	8451862493			B-3103	0
+		0	flat-171	PAID	FALSE	Sabera Jam	8451862493			B-3104	0
+		0	flat-172	PAID	TRUE	Usman Ramzan shaikh	9137224620			B-3105	0
+		0	flat-173	PAID	FALSE	fareeda kasam khan	9969337306			B-3106	0
+		0	flat-174	PAID	FALSE	Rizavan Khan	8291300628			B-3107	0
+Mh-01 DL 1301, MH-01 ED 3246		1	flat-175	PAID	FALSE	isha khan	9930193760		WH01 DK 4298	B-3108	2
+		0	flat-176	PAID	FALSE	Aliasgar zohair Husaini	9833127610			B-3201	0
+		0	flat-177	PAID	FALSE	Anees Abbas Cyclewala				B-3202	0
+		0	flat-178	PAID	FALSE	Samina Firoz Safri	9867633044			B-3203	0
+		0	flat-179	PAID	FALSE	sunehwala	9970592019			B-3204	0
+		0	flat-180	PAID	FALSE	Murtaza Dahodwala	9137375421			B-3205	0
+		0	flat-181	PAID	FALSE	Shabbir Dohadwala	9820773577			B-3206	0
+		0	flat-182	UNPAID	FALSE	Builders Unsold Flats (Close) 	9930352152			B-3207	0
+		0	flat-183	PAID	TRUE	Zuzer Zoheb Ghadiali	9930762152			B-3208	0
+		0	flat-184	PAID	FALSE	Shabbir Huseini OfficeWala	9773355252			B-3301	0
+		0	flat-185	PAID	FALSE	Yunus Shabbir Officewala	8097355152			B-3302	0
+		0	flat-186	PAID	FALSE	Samina Sutterwala	9784021229			B-3303	0
+		0	flat-187	PAID	FALSE	Samina Sutterwala	9784021229			B-3304	0
+		0	flat-188	PAID	TRUE	Nisreen Kapasi	9167082706			B-3305	0
+		0	flat-189	PAID	FALSE	Dr.Fatema Jetpurwala	9892392041			B-3306	0
+		0	flat-190	UNPAID	FALSE	Akbar Obri				B-3307	0
+		0	flat-191	PAID	FALSE	Saleh Galiwala	9619984414			B-3308	0
+		0	flat-192	PAID	FALSE	Dhanaliwala	9021096237			B-3401	0
+		0	flat-193	PAID	FALSE	Mohammed Hirani	9819991316			B-3402	0
+		0	flat-194	PAID	FALSE	Farida Motiwala	9820209292			B-3403	0
+		0	flat-195	PAID	FALSE	Yusuf Jaorawala	9820209292			B-3404	0
+		0	flat-196	PAID	FALSE	Shabbir Mansoor Habib	9324532919			B-3405	0
+		0	flat-197	PAID	FALSE	Mansoor Habib	9324532919			B-3406	0
+		0	flat-198	PAID	FALSE	Iqbal Mankada	9082747532			B-3407	0
+		0	flat-199	PAID	FALSE	Neemuchwala	8097910884			B-3408	0
+		0	flat-200	PAID	FALSE	Abdullah Amravatiwala	9820280552			B-3501	0
+		0	flat-201	PAID	FALSE	AbdulMustansir Fazleabbas Rampurwala	9518558418			B-3502	0
+		0	flat-202	PAID	FALSE	zainab Painter	9819255781			B-3503	0
+		0	flat-203	PAID	FALSE	Taher Indorewala	8080565770			B-3504	0
+		0	flat-204	PAID	FALSE	Murtuza Devasli	9223213072			B-3505	0
+		0	flat-205	PAID	FALSE	Nafisa Devasli	9223213072			B-3506	0
+		0	flat-206	PAID	FALSE	Yusuf Gallam				B-3507	0
+MH01D27116, MH01 CL3953		0	flat-207	PAID	TRUE	A Ghadiyali	9322279984			B-3508	2
+		0	flat-208	PAID	FALSE	Salman Bharmal	9076464144			B-3601	0
+		0	flat-209	PAID	FALSE	Murtaza Lokhandwala	8080235152			B-3602	0
+		0	flat-210	PAID	FALSE	Saifudeen Bhanpurawala	9892835286			B-3603	0
+		0	flat-211	PAID	FALSE	khozema Aggarwala	9969619246			B-3604	0
+		0	flat-212	PAID	FALSE	Samina Husain	8082259583			B-3605	0
+		0	flat-213	PAID	FALSE	Fatema Merchant	9082987619			B-3606	0
+		0	flat-214	PAID	FALSE	Shabbir Ladhi	9870499732			B-3607	0
+		0	flat-215	PAID	FALSE	Rashida Shabbir Ladhi	9870499732			B-3608	0
+		0	flat-216	PAID	FALSE	Mohammed Kathawala				B-3701	0
+		0	flat-217	PAID	FALSE	Zainab Dhankot				B-3702	0
+		0	flat-218	PAID	FALSE	Rashida Patanwala	9821674372			B-3703	0
+		0	flat-219	PAID	FALSE	Shabbir Husain / Nafisa Khokhawala 	9820607129			B-3705	0
+		0	flat-220	UNPAID	FALSE	Builders unsold flats (close)				B-3706	0
+		0	flat-221	PAID	FALSE	Mehjabeen Randhanpurwala	9967549428			B-3707	0
+		0	flat-222	PAID	TRUE	Hussain Udaipurwala	9821986098			B-3708	0
+		0	flat-223	PAID	FALSE	Saifuddin Poonawala	9820481948			B-3801	0
+		0	flat-224	PAID	FALSE	Yusuf Bhai Rangwala	9820169705			B-3802	0
+MH01 EC 2820, MH01 EK 7205	7208358501	0	flat-225	PAID	TRUE	Sakina Aftab	7387573813	Husain pittalwala 		B-3803	2
+		0	flat-226	PAID	FALSE	Sakina Aftab	7387573813			B-3804	0
+		0	flat-227	UNPAID	FALSE	Builders unsold flats (close)				B-3805	0
+		0	flat-228	UNPAID	FALSE	Builders unsold flats (close)				B-3806	0
+		0	flat-229	PAID	FALSE	Abdul Tayyab Misri	9920058852			B-3807	0
+		0	flat-230	PAID	TRUE	Aziz Ratlamwala	9833832152			B-3808	0

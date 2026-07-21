@@ -23,6 +23,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    fetch('/api/log-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: error.message, stack: error.stack, componentStack: errorInfo.componentStack })
+    }).catch(e=>console.error(e));
     this.setState({ errorInfo });
   }
 
@@ -40,8 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button 
               className="mt-6 px-4 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700 transition"
               onClick={() => {
-                localStorage.clear();
-                window.location.reload();
+                fetch('/api/save', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ flats: [], transactions: [], financialRecords: [], hallBookings: [], vendors: [], lastReceiptNo: 0, theme: 'DARK' }) }).then(() => { localStorage.clear(); window.location.href = '/'; }).catch(() => { localStorage.clear(); window.location.href = '/'; });
               }}
             >
               Clear Data & Reload

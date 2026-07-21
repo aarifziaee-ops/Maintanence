@@ -23,6 +23,7 @@ export interface Flat {
 }
 
 export interface Transaction {
+  id: string; // for tx
   receiptNo: number;
   date: string; // ISO String
   timestamp: number;
@@ -85,6 +86,7 @@ export interface AppState {
     text: string;
     timestamp: number;
   };
+  outstandingBalances?: { id: number, flatId: string, month: string, amount: number }[];
 }
 
 export type ViewState = 'DASHBOARD' | 'PAYMENT' | 'FLATS' | 'ACCOUNTS' | 'REPORTS' | 'UNPAID_LIST' | 'SETTINGS' | 'HALL_BOOKING' | 'VENDORS';

@@ -284,9 +284,9 @@ const FlatMaster: React.FC<FlatMasterProps> = ({ state, refreshState }) => {
                           <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg shrink-0 mt-0.5">
                              <User size={16} className="text-slate-400 dark:text-slate-500" />
                           </div>
-                          <div className="min-w-0 flex-1">
+                          <div className="flex-1">
                              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Owner</p>
-                             <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{flat.ownerName || 'Not Specified'}</p>
+                             <p className="font-semibold text-slate-800 dark:text-slate-200 break-words">{flat.ownerName || 'Not Specified'}</p>
                              {flat.mobile ? (
                                 <div className="flex items-center text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 hover:text-blue-600 transition-colors" onClick={(e) => { e.stopPropagation(); window.open(`tel:${flat.mobile}`); }}>
                                    <Phone size={12} className="mr-1.5" />
@@ -305,9 +305,9 @@ const FlatMaster: React.FC<FlatMasterProps> = ({ state, refreshState }) => {
                                 <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg shrink-0 mt-0.5">
                                    <User size={16} className="text-orange-400" />
                                 </div>
-                                <div className="min-w-0 flex-1">
+                                <div className="flex-1">
                                    <p className="text-xs font-bold text-orange-500/70 dark:text-orange-400/70 uppercase tracking-wider mb-0.5">Tenant</p>
-                                   <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{flat.tenantName || 'Not Specified'}</p>
+                                   <p className="font-semibold text-slate-800 dark:text-slate-200 break-words">{flat.tenantName || 'Not Specified'}</p>
                                    {flat.tenantMobile ? (
                                       <div className="flex items-center text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 hover:text-blue-600 transition-colors" onClick={(e) => { e.stopPropagation(); window.open(`tel:${flat.tenantMobile}`); }}>
                                          <Phone size={12} className="mr-1.5" />

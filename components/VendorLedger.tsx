@@ -133,7 +133,7 @@ const VendorLedger: React.FC<VendorLedgerProps> = ({ vendor, state, refreshState
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight truncate max-w-[200px]">{vendor.name}</h1>
+            <h1 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-tight break-words">{vendor.name}</h1>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Vendor Ledger</p>
           </div>
         </div>

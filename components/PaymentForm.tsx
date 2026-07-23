@@ -3,8 +3,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
 import { processPayment, deleteTransaction, updateTransaction, getNextReceiptNoForMonth, saveData } from '../services/storageService';
 import { generateWhatsAppLink, amountToWords, formatDate, formatCurrency, getTodayDateString, calculateMaintenanceForMonth, getTransactionsForMonth, getOutstandingBreakdown } from '../utils/helpers';
-import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { CheckCircle2, Share2, Search, ArrowRight, Trash2, Edit2, History, PlusCircle, AlertCircle, RefreshCw, Image as ImageIcon, Printer, Tag, UserCheck, CreditCard } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
+import { FinancialRecord } from '../types';
 
 interface PaymentFormProps {
   state: AppState;
@@ -17,6 +18,12 @@ type TabMode = 'NEW' | 'HISTORY';
 
 const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialTransactionToEdit, onClearEdit }) => {
   const [activeTab, setActiveTab] = useState<TabMode>('NEW');
+  const [collectionType, setCollectionType] = useState<'MAINTENANCE' | 'OTHER_INCOME'>('MAINTENANCE');
+  
+  // Other Income State
+  const [otherCategory, setOtherCategory] = useState<'Fines' | 'Hall Booking' | 'Service Charges' | 'Promotions' | 'Other'>('Hall Booking');
+  const [otherFlatId, setOtherFlatId] = useState<string>('');
+  const [manualSourceName, setManualSourceName] = useState<string>('');
   
   // New Payment / Edit State
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -541,6 +548,113 @@ const intendedMonth = useMemo(() => {
     setActiveTab('NEW');
   };
 
+  const handleOtherFlatChange = (flatId: string) => {
+    setOtherFlatId(flatId);
+    const flat = state.flats.find(f => f.id === flatId);
+    if (flat) {
+      if (!manualSourceName) {
+        setManualSourceName(flat.ownerName);
+      }
+      if (!mobile) {
+        setMobile(flat.mobile || '');
+      }
+    }
+  };
+
+  const handleOtherIncomeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      alert("Please enter a valid amount.");
+      return;
+    }
+
+    let finalFlatId = 'OTHER_INCOME';
+    let finalFlatNumber = `[${otherCategory}]`;
+    let finalOwnerName = manualSourceName.trim();
+    let cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : '';
+
+    if (otherFlatId) {
+      const flat = state.flats.find(f => f.id === otherFlatId);
+      if (flat) {
+        finalFlatId = flat.id;
+        finalFlatNumber = flat.flatNumber;
+        if (!finalOwnerName) {
+          finalOwnerName = flat.ownerName;
+        }
+        if (!cleanMobile) {
+          cleanMobile = flat.mobile ? flat.mobile.replace(/\D/g, '').slice(-10) : '';
+        }
+      }
+    }
+
+    if (!finalOwnerName) {
+      alert("Please enter a manual source name/company or select a flat number.");
+      return;
+    }
+
+    const categoryRemarks = `[${otherCategory}]${remarks.trim() ? ` - ${remarks.trim()}` : ''}`;
+
+    try {
+      const { newState, transaction } = processPayment(
+        state,
+        finalFlatId,
+        finalOwnerName,
+        cleanMobile,
+        numAmount,
+        paymentDate,
+        paymentMode,
+        manualReceiptNo ? parseInt(manualReceiptNo, 10) : undefined,
+        categoryRemarks
+      );
+
+      // Create corresponding FinancialRecord for society income logging
+      const finRecord: FinancialRecord = {
+        id: `fin-${Date.now()}`,
+        type: 'INCOME',
+        paymentMode,
+        amount: numAmount,
+        date: paymentDate,
+        category: otherCategory,
+        description: `Receipt #${transaction.receiptNo} - ${finalOwnerName}${remarks.trim() ? ` (${remarks.trim()})` : ''}`,
+        timestamp: Date.now()
+      };
+
+      const updatedStateWithFinance = {
+        ...newState,
+        financialRecords: [finRecord, ...newState.financialRecords]
+      };
+
+      setGeneratedReceipt({
+        receiptNo: transaction.receiptNo,
+        date: formatDate(transaction.date),
+        amount: transaction.amount,
+        name: transaction.ownerName,
+        flat: transaction.flatNumber,
+        mobile: transaction.mobile,
+        paymentMode: transaction.paymentMode || 'CASH',
+        isDuplicate: false,
+        remarks: transaction.remarks,
+        rawDate: transaction.date
+      });
+
+      await saveData(updatedStateWithFinance);
+
+      const syncRes = await fetch('/api/state');
+      if (syncRes.ok) {
+        const syncedData = await syncRes.json();
+        refreshState(syncedData);
+      } else {
+        refreshState(updatedStateWithFinance);
+      }
+
+      setStep(3);
+    } catch (error) {
+      console.error("Error submitting other income:", error);
+      alert("Failed to submit income entry.");
+    }
+  };
+
   const resetForm = () => {
     setStep(1);
     setSearchTerm('');
@@ -554,6 +668,9 @@ const intendedMonth = useMemo(() => {
     setPaymentMode('CASH');
     setRemarks('');
     setManualReceiptNo('');
+    setOtherCategory('Hall Booking');
+    setOtherFlatId('');
+    setManualSourceName('');
     setGeneratedReceipt(null);
     setEditingTx(null);
     setIsChangingFlat(false);
@@ -565,9 +682,11 @@ const intendedMonth = useMemo(() => {
     if (!element) return;
     
     const btn = document.getElementById('share-img-btn');
-    if(btn) btn.textContent = 'Processing...';
+    if (btn) btn.textContent = 'Generating Image...';
 
-    try {
+    // Use setTimeout so button text updates immediately to "Generating Image..."
+    setTimeout(async () => {
+      try {
         // @ts-ignore
         if (!window.html2canvas) {
             alert("Image generation library is loading. Please try again in 2 seconds.");
@@ -577,17 +696,21 @@ const intendedMonth = useMemo(() => {
 
         // @ts-ignore
         const canvas = await window.html2canvas(element, {
-            scale: 1.5, // Optimized resolution for fast image generation
+            scale: 1.25, // Optimized high resolution with fast capture speed
             backgroundColor: '#ffffff',
             useCORS: true,
-            logging: false
+            logging: false,
+            removeContainer: true
         });
 
         canvas.toBlob(async (blob: Blob | null) => {
-            if (!blob) return;
+            if (!blob) {
+                if (btn) btn.textContent = 'Share Receipt Image';
+                return;
+            }
             const imageUrl = URL.createObjectURL(blob);
 
-            // 1. Always Download Image first (so user has it)
+            // 1. Always Download Image first
             const link = document.createElement('a');
             link.href = imageUrl;
             link.download = `Receipt_${generatedReceipt?.receiptNo}.png`;
@@ -606,12 +729,11 @@ const intendedMonth = useMemo(() => {
                     generatedReceipt.date
                 );
                 
-                // Open WhatsApp after small delay
                 setTimeout(() => {
                     window.open(waLink, '_blank');
                     alert("Receipt Image Downloaded!\n\nWhatsApp chat opened.\n\nPlease attach the downloaded image to the chat.");
-                    if(btn) btn.textContent = 'Share Receipt Image';
-                }, 800);
+                    if (btn) btn.textContent = 'Share Receipt Image';
+                }, 400);
 
             } else {
                 // Fallback: System Share Sheet
@@ -628,15 +750,16 @@ const intendedMonth = useMemo(() => {
                         // User cancelled
                     }
                 }
-                if(btn) btn.textContent = 'Share Receipt Image';
+                if (btn) btn.textContent = 'Share Receipt Image';
             }
         }, 'image/png');
 
-    } catch (error) {
+      } catch (error) {
         console.error("Receipt generation failed", error);
         alert("Failed to generate image.");
-        if(btn) btn.textContent = 'Share Receipt Image';
-    }
+        if (btn) btn.textContent = 'Share Receipt Image';
+      }
+    }, 50);
   };
 
   const renderTabs = () => (
@@ -1028,7 +1151,7 @@ const intendedMonth = useMemo(() => {
     <div className="p-4 flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors overflow-y-auto">
       {renderModals()}
       
-      <div className="flex flex-col items-center justify-center text-center mb-6">
+      <div className="flex flex-col items-center justify-center text-center mb-6 no-print">
         <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-3">
             <CheckCircle2 size={32} />
         </div>
@@ -1036,7 +1159,7 @@ const intendedMonth = useMemo(() => {
       </div>
 
       {/* RECEIPT CARD TO CAPTURE */}
-      <div className="flex justify-center mb-6">
+      <div className="flex justify-center mb-6" id="printable-section">
           <div 
             id="receipt-card"
             className="bg-white w-full max-w-sm p-6 rounded-none shadow-xl border-t-4 border-blue-600 relative overflow-hidden text-slate-900"
@@ -1122,14 +1245,22 @@ const intendedMonth = useMemo(() => {
       </div>
 
       {/* ACTION BUTTONS */}
-      <div className="space-y-3 pb-24 max-w-sm mx-auto w-full">
+      <div className="space-y-3 pb-24 max-w-sm mx-auto w-full no-print">
+        <button
+          onClick={() => window.print()}
+          className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-200 dark:shadow-none active:scale-95 transition-all"
+        >
+          <Printer size={20} />
+          <span>Instant Print / Save PDF</span>
+        </button>
+
         <button
           id="share-img-btn"
           onClick={handleShareImage}
           className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-200 dark:shadow-none hover:bg-blue-700 active:scale-95 transition-all"
         >
           <ImageIcon size={20} />
-          <span>Share Receipt Image</span>
+          <span>Share Receipt Image (WhatsApp)</span>
         </button>
 
         {generatedReceipt.mobile ? (
@@ -1162,63 +1293,300 @@ const intendedMonth = useMemo(() => {
   );
   }
 
-  // STEP 1: SEARCH & SELECT
+  // STEP 1: SEARCH & SELECT OR OTHER INCOME
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 transition-colors">
       {renderModals()}
       {renderTabs()}
       
-      <div className="p-4 flex flex-col flex-1 overflow-hidden">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4">
-            {editingTx ? 'Change Unit for Receipt' : 'Select Unit'}
-        </h2>
-        <div className="relative mb-4">
-          <Search className="absolute left-4 top-3.5 text-blue-500" size={20} />
-          <input
-            type="text"
-            placeholder="Search flat number or owner..."
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 transition-colors shadow-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        
-        <div className="flex-1 overflow-y-auto space-y-2.5 pb-24">
-          {filteredFlats.length === 0 ? (
-            <div className="text-center text-slate-400 dark:text-slate-500 mt-10">
-              {searchTerm ? <p>No matching unpaid units found.</p> : <p>Search for a unit to begin.</p>}
+      <div className="p-4 flex flex-col flex-1 overflow-y-auto pb-24">
+        {/* Toggle between Maintenance and Other Income */}
+        {!editingTx && (
+          <div className="flex bg-slate-200 dark:bg-slate-800 p-1.5 rounded-2xl mb-5 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setCollectionType('MAINTENANCE')}
+              className={`flex-1 py-3 px-3 text-xs sm:text-sm font-bold rounded-xl transition-all ${
+                collectionType === 'MAINTENANCE'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-md'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Maintenance Collection
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollectionType('OTHER_INCOME')}
+              className={`flex-1 py-3 px-3 text-xs sm:text-sm font-bold rounded-xl transition-all ${
+                collectionType === 'OTHER_INCOME'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Other Income Receipt
+            </button>
+          </div>
+        )}
+
+        {collectionType === 'MAINTENANCE' ? (
+          <>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-4">
+                {editingTx ? 'Change Unit for Receipt' : 'Select Unit'}
+            </h2>
+            <div className="relative mb-4">
+              <Search className="absolute left-4 top-3.5 text-blue-500" size={20} />
+              <input
+                type="text"
+                placeholder="Search flat number or owner..."
+                className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 transition-colors shadow-sm"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-          ) : (
-            filteredFlats.map(flat => (
+            
+            <div className="space-y-2.5">
+              {filteredFlats.length === 0 ? (
+                <div className="text-center text-slate-400 dark:text-slate-500 mt-10">
+                  {searchTerm ? <p>No matching unpaid units found.</p> : <p>Search for a unit to begin.</p>}
+                </div>
+              ) : (
+                filteredFlats.map(flat => (
+                  <button
+                    key={flat.id}
+                    onClick={() => handleSelectFlat(flat.id)}
+                    className={`w-full flex justify-between items-center p-4 rounded-2xl border transition-all active:scale-[0.98] ${
+                        selectedFlatId === flat.id 
+                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800' 
+                        : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-blue-100 shadow-sm'
+                    }`}
+                  >
+                    <div className="text-left flex items-center space-x-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
+                          selectedFlatId === flat.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                      }`}>
+                        {flat.flatNumber.split('-')[1]}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-lg font-bold text-slate-800 dark:text-white block leading-tight">{flat.flatNumber}</span>
+                        {flat.ownerName && <span className="block text-sm text-slate-500 dark:text-slate-400 break-words whitespace-normal">{flat.ownerName}</span>}
+                      </div>
+                    </div>
+                    <div className="text-slate-300 dark:text-slate-600">
+                      <ArrowRight size={20} />
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          /* OTHER INCOME FORM */
+          <div className="bg-amber-50/60 dark:bg-slate-900 p-5 sm:p-6 rounded-3xl border border-amber-200 dark:border-slate-800 space-y-6 shadow-sm">
+            <div className="flex justify-between items-start border-b border-amber-200/60 dark:border-slate-800 pb-4">
+              <div>
+                <h2 className="text-2xl font-black text-amber-900 dark:text-amber-400 tracking-wide uppercase">OTHER INCOME</h2>
+                <p className="text-xs font-medium text-amber-800/80 dark:text-amber-500/80 mt-0.5">Issue numbered receipts for hall booking, promotions, fines, etc.</p>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold text-amber-800/60 dark:text-amber-400/60 uppercase tracking-widest mb-1">Receipt No</span>
+                <span className="bg-yellow-400 text-black text-2xl font-black px-4 py-1.5 rounded-xl shadow-md border-2 border-yellow-300 transform -rotate-1">
+                  #{previewReceiptNo}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleOtherIncomeSubmit} className="space-y-6">
+              {/* 1. INCOME CATEGORY */}
+              <div>
+                <label className="block text-xs font-bold text-amber-900 dark:text-amber-400 uppercase tracking-wider mb-2.5 flex items-center">
+                  <Tag size={14} className="mr-1.5 text-amber-700" />
+                  Income Category
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {(['Fines', 'Hall Booking', 'Service Charges', 'Promotions', 'Other'] as const).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setOtherCategory(cat)}
+                      className={`py-3 px-3 rounded-xl text-xs font-bold transition-all border ${
+                        otherCategory === cat
+                          ? 'bg-amber-700 text-white border-amber-800 shadow-md scale-[1.02]'
+                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-300'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. SOURCE INFORMATION */}
+              <div className="space-y-4 pt-3 border-t border-amber-200/60 dark:border-slate-800">
+                <label className="block text-xs font-bold text-amber-900 dark:text-amber-400 uppercase tracking-wider flex items-center">
+                  <UserCheck size={14} className="mr-1.5 text-amber-700" />
+                  Source Information
+                </label>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    Select Flat Number (Optional Resident Link)
+                  </label>
+                  <select
+                    value={otherFlatId}
+                    onChange={(e) => handleOtherFlatChange(e.target.value)}
+                    className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                  >
+                    <option value="">-- Manual Payer / Company (No Flat Linked) --</option>
+                    {state.flats.map((flat) => (
+                      <option key={flat.id} value={flat.id}>
+                        {flat.flatNumber} - {flat.ownerName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    Manual Source (Name / Company / Details)
+                  </label>
+                  <input
+                    type="text"
+                    value={manualSourceName}
+                    onChange={(e) => setManualSourceName(e.target.value)}
+                    placeholder="e.g. Samsung Banner Ads, Airtel, or Guest Name"
+                    className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    Mobile Number (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    placeholder="e.g. 9876543210"
+                    className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 3. PAYMENT SPECIFICATIONS */}
+              <div className="space-y-4 pt-3 border-t border-amber-200/60 dark:border-slate-800">
+                <label className="block text-xs font-bold text-amber-900 dark:text-amber-400 uppercase tracking-wider flex items-center">
+                  <CreditCard size={14} className="mr-1.5 text-amber-700" />
+                  Payment Specifications
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                      Amount Received (₹) *
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-3.5 text-slate-400 font-bold">₹</span>
+                      <input
+                        required
+                        type="number"
+                        value={amount || ''}
+                        onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : 0)}
+                        placeholder="e.g. 5000"
+                        className="w-full pl-8 pr-3 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-base focus:ring-2 focus:ring-amber-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                      Date of Receipt *
+                    </label>
+                    <input
+                      required
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3.5 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                      Receipt Number (Auto Continuous)
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <span className="bg-yellow-400 text-black font-black px-4 py-3 rounded-xl border border-yellow-500 shadow-sm text-lg">
+                        #{previewReceiptNo}
+                      </span>
+                      <input
+                        type="number"
+                        value={manualReceiptNo}
+                        onChange={(e) => setManualReceiptNo(e.target.value)}
+                        placeholder="Manual Override #"
+                        className="w-full px-3 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                      Payment Mode
+                    </label>
+                    <div className="flex space-x-3 pt-0.5">
+                      <label className={`flex-1 flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer transition-all ${paymentMode === 'CASH' ? 'bg-amber-100/80 border-amber-400 dark:bg-amber-950/40' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                        <input
+                          type="radio"
+                          name="otherPaymentMode"
+                          value="CASH"
+                          checked={paymentMode === 'CASH'}
+                          onChange={() => setPaymentMode('CASH')}
+                          className="w-4 h-4 text-amber-600"
+                        />
+                        <span className="text-xs font-bold text-slate-800 dark:text-white">CASH</span>
+                      </label>
+                      <label className={`flex-1 flex items-center justify-center space-x-2 p-3 rounded-xl border cursor-pointer transition-all ${paymentMode === 'BANK' ? 'bg-amber-100/80 border-amber-400 dark:bg-amber-950/40' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}>
+                        <input
+                          type="radio"
+                          name="otherPaymentMode"
+                          value="BANK"
+                          checked={paymentMode === 'BANK'}
+                          onChange={() => setPaymentMode('BANK')}
+                          className="w-4 h-4 text-amber-600"
+                        />
+                        <span className="text-xs font-bold text-slate-800 dark:text-white">BANK / UPI</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">
+                    Remarks / Notes
+                  </label>
+                  <input
+                    type="text"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="e.g. Small Hall Booking for birthday party on 25th Aug"
+                    className="w-full px-4 py-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+              </div>
+
               <button
-                key={flat.id}
-                onClick={() => handleSelectFlat(flat.id)}
-                className={`w-full flex justify-between items-center p-4 rounded-2xl border transition-all active:scale-[0.98] ${
-                    selectedFlatId === flat.id 
-                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800' 
-                    : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-blue-100 shadow-sm'
-                }`}
+                type="submit"
+                className="w-full bg-amber-700 hover:bg-amber-800 text-white font-black py-4 rounded-xl shadow-lg shadow-amber-800/20 active:scale-[0.98] transition-all uppercase tracking-wider text-sm flex items-center justify-center space-x-2"
               >
-                <div className="text-left flex items-center space-x-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ${
-                      selectedFlatId === flat.id 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {flat.flatNumber.split('-')[1]}
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-lg font-bold text-slate-800 dark:text-white block leading-tight">{flat.flatNumber}</span>
-                    {flat.ownerName && <span className="block text-sm text-slate-500 dark:text-slate-400 break-words whitespace-normal">{flat.ownerName}</span>}
-                  </div>
-                </div>
-                <div className="text-slate-300 dark:text-slate-600">
-                  <ArrowRight size={20} />
-                </div>
+                <PlusCircle size={18} />
+                <span>SUBMIT INCOME ENTRY</span>
               </button>
-            ))
-          )}
-        </div>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );

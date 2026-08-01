@@ -81,7 +81,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     }
   }, [initialTransactionToEdit]);
 
-  // Auto-update amount when selected flat or date changes (only if it's a new payment)
+  // Auto-update amount and period remarks when selected flat or date changes (only if it's a new payment)
   useEffect(() => {
     if (selectedFlatId) {
         fetch(`/api/outstanding-balances/${selectedFlatId}`)
@@ -93,6 +93,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                     if (sorted.length > 0) {
                         setSelectedMonths([0]);
                         setAmount(sorted[0].amount);
+                        setRemarks(computePeriodRemarks([0], [], sorted, paymentDate));
                     } else {
                         setSelectedMonths([]);
                         const flat = state.flats.find(f => f.id === selectedFlatId);
@@ -103,6 +104,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
                         } else {
                             setAmount(MAINTENANCE_AMOUNT);
                         }
+                        setRemarks(computePeriodRemarks([], [], [], paymentDate));
                     }
                 }
             });
@@ -192,6 +194,68 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     return options;
   }, [selectedFlatId, outstandingBalances, paymentDate, state.flats]);
 
+  const computePeriodRemarks = (
+    selectedIndices: number[],
+    advanceMonths: string[],
+    balances: any[],
+    fallbackDate: string
+  ) => {
+    const monthItems: { year: string; monthIdx: number; monthName: string }[] = [];
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    // 1. Selected outstanding months
+    selectedIndices.forEach(idx => {
+      if (balances[idx]) {
+        const parts = balances[idx].month.split('-');
+        if (parts.length === 2) {
+          const yr = parts[0];
+          const mIdx = parseInt(parts[1], 10) - 1;
+          if (mIdx >= 0 && mIdx < 12) {
+            monthItems.push({ year: yr, monthIdx: mIdx, monthName: monthNames[mIdx] });
+          }
+        }
+      }
+    });
+
+    // 2. Selected advance months
+    advanceMonths.forEach(mStr => {
+      const parts = mStr.split('-');
+      if (parts.length === 2) {
+        const yr = parts[0];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          monthItems.push({ year: yr, monthIdx: mIdx, monthName: monthNames[mIdx] });
+        }
+      }
+    });
+
+    if (monthItems.length === 0) {
+      const parts = fallbackDate.split('-');
+      if (parts.length >= 2) {
+        const yr = parts[0];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        if (mIdx >= 0 && mIdx < 12) {
+          return `Payment for ${monthNames[mIdx]} ${yr}`;
+        }
+      }
+      return '';
+    }
+
+    const allSameYear = monthItems.every(item => item.year === monthItems[0].year);
+    if (allSameYear) {
+      const yr = monthItems[0].year;
+      const names = monthItems.map(i => i.monthName);
+      if (names.length === 1) return `Payment for ${names[0]} ${yr}`;
+      if (names.length === 2) return `Payment for ${names[0]} and ${names[1]} ${yr}`;
+      return `Payment for ${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]} ${yr}`;
+    } else {
+      const formatted = monthItems.map(i => `${i.monthName} ${i.year}`);
+      if (formatted.length === 1) return `Payment for ${formatted[0]}`;
+      if (formatted.length === 2) return `Payment for ${formatted[0]} and ${formatted[1]}`;
+      return `Payment for ${formatted.slice(0, -1).join(', ')}, and ${formatted[formatted.length - 1]}`;
+    }
+  };
+
   const recalculatePaymentDetails = (newSelected: number[], newAdvance: string[]) => {
     setSelectedMonths(newSelected);
     setSelectedAdvanceMonths(newAdvance);
@@ -208,36 +272,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ state, refreshState, initialT
     const totalSum = outstandingSum + advanceSum;
     setAmount(totalSum);
 
-    // Generate remarks based on selected months
-    // 1. Outstanding months abbreviations
-    const selectedMonthsAbbrs = newSelected.map(idx => {
-        const m = outstandingBalances[idx].month; // YYYY-MM
-        const monthParts = m.split('-');
-        const monthIdx = parseInt(monthParts[1], 10) - 1;
-        const abbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        return abbrs[monthIdx];
-    });
-
-    // 2. Advance months abbreviations
-    const advanceMonthsAbbrs = newAdvance.map(monthStr => {
-        const monthParts = monthStr.split('-');
-        const monthIdx = parseInt(monthParts[1], 10) - 1;
-        const abbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        return abbrs[monthIdx];
-    });
-
-    // Combine all abbreviations in order of calendar months (with Apr-Mar fiscal cycle order)
-    const order = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
-    
-    // We want a unique, sorted list of abbreviations
-    const uniqueAbbrsSet = new Set([...selectedMonthsAbbrs, ...advanceMonthsAbbrs]);
-    const allAbbrs = Array.from(uniqueAbbrsSet).sort((a, b) => order.indexOf(a) - order.indexOf(b));
-
-    if (allAbbrs.length > 0) {
-        setRemarks(generatePeriodString(allAbbrs, paymentDate.substring(0, 4)));
-    } else {
-        setRemarks('');
-    }
+    setRemarks(computePeriodRemarks(newSelected, newAdvance, outstandingBalances, paymentDate));
   };
 
   const filteredHistory = useMemo(() => {
@@ -1251,7 +1286,7 @@ const intendedMonth = useMemo(() => {
           className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-200 dark:shadow-none active:scale-95 transition-all"
         >
           <Printer size={20} />
-          <span>Instant Print / Save PDF</span>
+          <span>Print Receipt</span>
         </button>
 
         <button

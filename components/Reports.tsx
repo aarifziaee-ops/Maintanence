@@ -1,8 +1,8 @@
 
 import React, { useMemo, useState } from 'react';
 import { AppState, PaymentStatus, Transaction } from '../types';
-import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, getOutstandingBreakdown, generateDetailedReminderLink, downloadPDF, calculateExpectedTotalBefore, calculateMaintenanceForMonth, getTransactionsForMonth } from '../utils/helpers';
-import { Users, Clock, AlertCircle, Share2, Edit2, Calendar, Download, MessageCircle, FileText, CheckCircle2, CalendarDays, ChevronLeft, ChevronRight, Copy, FileSpreadsheet } from 'lucide-react';
+import { formatCurrency, formatDate, generateWhatsAppLink, getTodayDateString, generateReminderLink, generateSmartBillLink, getOutstandingBreakdown, generateDetailedReminderLink, downloadPDF, calculateExpectedTotalBefore, calculateMaintenanceForMonth, getTransactionsForMonth, parseMonthsFromRemarks } from '../utils/helpers';
+import { Users, Clock, AlertCircle, Share2, Edit2, Calendar, Download, MessageCircle, FileText, CheckCircle2, CalendarDays, ChevronLeft, ChevronRight, Copy, FileSpreadsheet, Sparkles } from 'lucide-react';
 import { MAINTENANCE_AMOUNT } from '../constants';
 
 interface ReportsProps {
@@ -20,7 +20,7 @@ const formatShortDate = (dateStr: string) => {
 };
 
 const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTransaction }) => {
-  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'OUTSTANDING' | 'AUDIT' | 'BILLING' | 'BANK_TRANSFER' | 'OWNERS' | 'TENANTS'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
+  const [activeTab, setActiveTab] = useState<'DAILY' | 'UNPAID' | 'OUTSTANDING' | 'AUDIT' | 'BILLING' | 'BANK_TRANSFER' | 'OWNERS' | 'TENANTS' | 'ADVANCE'>(view === 'UNPAID_LIST' ? 'UNPAID' : 'DAILY');
   
   // Date Range State for Collection Report
   const [fromDate, setFromDate] = useState<string>(getTodayDateString());
@@ -31,6 +31,9 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
   
   // Month State for Billing Report
   const [billingMonth, setBillingMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+
+  // Month State for Advance Report
+  const [advanceMonth, setAdvanceMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   
   // Year State for Audit Report
   const [auditYear, setAuditYear] = useState(new Date().getFullYear().toString());
@@ -63,6 +66,18 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     const d = new Date(billingMonth + '-01');
     d.setMonth(d.getMonth() + 1);
     setBillingMonth(d.toISOString().slice(0, 7));
+  };
+
+  const handlePrevAdvanceMonth = () => {
+    const d = new Date(advanceMonth + '-01');
+    d.setMonth(d.getMonth() - 1);
+    setAdvanceMonth(d.toISOString().slice(0, 7));
+  };
+
+  const handleNextAdvanceMonth = () => {
+    const d = new Date(advanceMonth + '-01');
+    d.setMonth(d.getMonth() + 1);
+    setAdvanceMonth(d.toISOString().slice(0, 7));
   };
 
   const handlePrevBankTransferMonth = () => {
@@ -105,7 +120,7 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
     
     return state.flats.map(flat => {
       // Find all outstanding balances for this flat from state.outstandingBalances that are BEFORE the selected billingMonth (YYYY-MM)
-      const flatOutstanding = state.outstandingBalances?.filter((ob) => ob.flatId === flat.id && ob.month < billingMonth) || [];
+      const flatOutstanding = state.outstandingBalances?.filter((ob) => (ob.flatId === flat.id || ob.flatId === flat.flatNumber) && ob.month < billingMonth) || [];
       
       const breakdown = flatOutstanding.map((ob) => {
         const [yearStr, monthStr] = ob.month.split('-');
@@ -120,7 +135,24 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
       });
       
       const previousArrears = flatOutstanding.reduce((sum, ob) => sum + ob.amount, 0);
-      const currentMonthDue = calculateMaintenanceForMonth(flat, selYear, selMonth);
+
+      // Check if billingMonth has already been paid for this flat (either in advance or on time)
+      const isBillingMonthPaid = state.transactions.some(t => 
+        (t.flatId === flat.id || t.flatNumber === flat.flatNumber) && 
+        parseMonthsFromRemarks(t.remarks, t.date).includes(billingMonth)
+      );
+
+      const billingMonthOb = state.outstandingBalances?.find(ob => (ob.flatId === flat.id || ob.flatId === flat.flatNumber) && ob.month === billingMonth);
+
+      let currentMonthDue = 0;
+      if (isBillingMonthPaid) {
+        currentMonthDue = 0;
+      } else if (billingMonthOb) {
+        currentMonthDue = billingMonthOb.amount;
+      } else {
+        currentMonthDue = calculateMaintenanceForMonth(flat, selYear, selMonth);
+      }
+
       const totalPayable = previousArrears + currentMonthDue;
       
       return {
@@ -128,10 +160,60 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
         previousArrears,
         currentMonthDue,
         totalPayable,
+        isBillingMonthPaid,
         breakdown
       };
     }).sort((a, b) => a.flatNumber.localeCompare(b.flatNumber));
-  }, [state.flats, state.outstandingBalances, billingMonth]);
+  }, [state.flats, state.outstandingBalances, state.transactions, billingMonth]);
+
+  const advanceReport = useMemo(() => {
+    const result: {
+      transaction: Transaction;
+      flatNumber: string;
+      ownerName: string;
+      mobile: string;
+      paymentDate: string;
+      advanceMonthsStr: string;
+      advanceAmount: number;
+    }[] = [];
+
+    state.transactions.forEach(t => {
+      const paymentMonthStr = t.date.substring(0, 7);
+      if (paymentMonthStr === advanceMonth) {
+        const coveredMonths = parseMonthsFromRemarks(t.remarks, t.date);
+        const advMonths = coveredMonths.filter(m => m > paymentMonthStr);
+        
+        if (advMonths.length > 0) {
+          const flat = state.flats.find(f => f.id === t.flatId || f.flatNumber === t.flatNumber);
+          const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+          const advLabels = advMonths.map(mStr => {
+            const [yr, mIndexStr] = mStr.split('-');
+            const mIdx = parseInt(mIndexStr, 10) - 1;
+            return `${MONTHS_LONG[mIdx]} ${yr}`;
+          });
+
+          const prop = coveredMonths.length > 0 ? (advMonths.length / coveredMonths.length) : 1;
+          const advAmount = Math.round(t.amount * prop);
+
+          result.push({
+            transaction: t,
+            flatNumber: t.flatNumber || (flat ? flat.flatNumber : ''),
+            ownerName: t.ownerName || (flat ? flat.ownerName : ''),
+            mobile: t.mobile || (flat ? (flat.mobile || '') : ''),
+            paymentDate: t.date,
+            advanceMonthsStr: advLabels.join(', '),
+            advanceAmount: advAmount > 0 ? advAmount : t.amount
+          });
+        }
+      }
+    });
+
+    return result.sort((a, b) => a.flatNumber.localeCompare(b.flatNumber));
+  }, [state.transactions, state.flats, advanceMonth]);
+
+  const totalAdvanceAmount = useMemo(() => {
+    return advanceReport.reduce((sum, item) => sum + item.advanceAmount, 0);
+  }, [advanceReport]);
 
   const bankTransferData = useMemo(() => {
     return state.transactions.filter(t => 
@@ -589,46 +671,53 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
               <p className="text-sm text-black">Billing Month: {formattedMonth}</p>
          </div>
 
-         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden print:border-black print:rounded-none">
-          <div className="flex items-center bg-slate-900 dark:bg-slate-800 p-4 border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-white uppercase tracking-widest print:bg-slate-100 print:text-black">
-             <div className="w-16 shrink-0">Flat</div>
-             <div className="flex-1 px-2">Owner</div>
-             <div className="w-20 shrink-0 text-right">Arrears</div>
-             <div className="w-20 shrink-0 text-right">Current</div>
-             <div className="w-24 shrink-0 text-right">Total Due</div>
-             <div className="w-10 shrink-0 text-center no-print"></div>
-          </div>
-
-          <div className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
-            {billingData.map(flat => (
-              <div key={flat.id} className="flex items-center p-4 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors print:p-2">
-                 <div className="w-16 shrink-0 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</div>
-                 <div className="flex-1 px-2 break-words text-slate-600 dark:text-slate-300 print:text-black font-medium">{flat.ownerName || '-'}</div>
-                 <div className={`w-20 shrink-0 text-right font-mono ${flat.previousArrears > 0 ? 'text-red-600 dark:text-red-400' : (flat.previousArrears < 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-500 dark:text-slate-400')} print:text-black`}>
-                    {flat.previousArrears !== 0 ? formatCurrency(flat.previousArrears) : '-'}
-                 </div>
-                 <div className="w-20 shrink-0 text-right font-mono text-slate-600 dark:text-slate-300 print:text-black">
-                    {formatCurrency(flat.currentMonthDue)}
-                 </div>
-                 <div className="w-24 shrink-0 text-right font-black text-slate-900 dark:text-white print:text-black">
+         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto print:border-black print:rounded-none">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-900 dark:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest print:bg-slate-100 print:text-black">
+                <th className="py-3 px-4 w-20 text-left">Flat</th>
+                <th className="py-3 px-4 text-left">Owner</th>
+                <th className="py-3 px-4 w-28 text-right">Arrears</th>
+                <th className="py-3 px-4 w-28 text-right">Current</th>
+                <th className="py-3 px-4 w-32 text-right">Total Due</th>
+                <th className="py-3 px-4 w-12 text-center no-print">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
+              {billingData.map(flat => (
+                <tr key={flat.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <td className="py-3 px-4 font-black text-slate-800 dark:text-white print:text-black">{flat.flatNumber}</td>
+                  <td className="py-3 px-4 font-medium text-slate-600 dark:text-slate-300 print:text-black">{flat.ownerName || '-'}</td>
+                  <td className={`py-3 px-4 text-right font-mono font-bold ${flat.previousArrears > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-500'} print:text-black`}>
+                    {flat.previousArrears > 0 ? formatCurrency(flat.previousArrears) : '-'}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono font-bold text-slate-700 dark:text-slate-300 print:text-black">
+                    {flat.isBillingMonthPaid ? (
+                      <span className="text-green-600 dark:text-green-400 font-bold">Paid</span>
+                    ) : (
+                      formatCurrency(flat.currentMonthDue)
+                    )}
+                  </td>
+                  <td className="py-3 px-4 text-right font-black text-slate-900 dark:text-white print:text-black">
                     {formatCurrency(flat.totalPayable)}
-                 </div>
-                 <div className="w-10 shrink-0 flex justify-center no-print">
-                     {flat.mobile && (
-                       <a 
-                          href={generateSmartBillLink(flat.mobile, flat.ownerName, flat.flatNumber, formattedMonth, flat.currentMonthDue, flat.previousArrears, flat.totalPayable, flat.breakdown)} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          className="text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" 
-                          title="Send Smart Bill via WhatsApp"
-                       >
-                          <MessageCircle size={18} />
-                       </a>
-                     )}
-                 </div>
-              </div>
-            ))}
-          </div>
+                  </td>
+                  <td className="py-3 px-4 text-center no-print">
+                    {flat.mobile && (
+                      <a 
+                        href={generateSmartBillLink(flat.mobile, flat.ownerName, flat.flatNumber, formattedMonth, flat.currentMonthDue, flat.previousArrears, flat.totalPayable, flat.breakdown)} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="inline-flex items-center justify-center text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors" 
+                        title="Send Smart Bill via WhatsApp"
+                      >
+                        <MessageCircle size={18} />
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
          </div>
          
          {/* PRINT FOOTER */}
@@ -645,6 +734,140 @@ const Reports: React.FC<ReportsProps> = ({ state, view, refreshState, onEditTran
              </div>
              <p className="text-center text-[8px] text-slate-500 mt-10">Document generated by Continental Heights B Wing Manager App on {new Date().toLocaleString()}</p>
          </div>
+      </div>
+    );
+  };
+
+  const renderAdvanceReport = () => {
+    const formattedMonth = new Date(advanceMonth + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center no-print">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">Advance Payments Report</h2>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-black tracking-widest">
+              Paid in {formattedMonth} for Future Months
+            </p>
+          </div>
+          <button onClick={handleDownload} className="flex items-center space-x-2 text-white bg-blue-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 shadow-md transition-colors">
+            <Download size={14} />
+            <span className="hidden sm:inline">Export PDF</span>
+          </button>
+        </div>
+
+        {/* Month Selector */}
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between no-print">
+          <button onClick={handlePrevAdvanceMonth} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+            <ChevronLeft size={20} className="text-slate-600 dark:text-slate-300" />
+          </button>
+          <div className="text-center">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block">Payment Month</span>
+            <span className="font-bold text-slate-800 dark:text-white uppercase">{formattedMonth}</span>
+          </div>
+          <button onClick={handleNextAdvanceMonth} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+            <ChevronRight size={20} className="text-slate-600 dark:text-slate-300" />
+          </button>
+        </div>
+
+        {/* PRINT HEADER */}
+        <div className="hidden print:block text-center mb-6 border-b-2 border-black pb-4">
+          <h1 className="text-2xl font-black text-black mb-1 uppercase tracking-tight">CONTINENTAL HEIGHTS B WING</h1>
+          <h2 className="text-lg font-bold text-black uppercase">ADVANCE PAYMENTS REPORT</h2>
+          <p className="text-sm text-black">Payment Month: {formattedMonth}</p>
+        </div>
+
+        {/* Summary Card */}
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center no-print">
+          <div>
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block">Advance Payments</span>
+            <span className="text-lg font-black text-slate-800 dark:text-white">{advanceReport.length} Members Paid Advance</span>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block">Total Advance Collected</span>
+            <span className="text-xl font-black text-green-600 dark:text-green-400">{formatCurrency(totalAdvanceAmount)}</span>
+          </div>
+        </div>
+
+        {/* Report Table */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto print:border-black print:shadow-none print:rounded-none">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-900 dark:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest print:bg-slate-100 print:text-black">
+                <th className="py-3 px-4 w-16 text-left">Recpt</th>
+                <th className="py-3 px-4 w-20 text-left">Flat</th>
+                <th className="py-3 px-4 text-left">Owner / Member</th>
+                <th className="py-3 px-4 w-24 text-left">Date</th>
+                <th className="py-3 px-4 text-left">Advance Months Covered</th>
+                <th className="py-3 px-4 w-28 text-right">Advance Amount</th>
+                <th className="py-3 px-4 w-12 text-center no-print">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 print:divide-black">
+              {advanceReport.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center text-slate-400 dark:text-slate-500 font-medium italic">
+                    No advance payments recorded in {formattedMonth}.
+                  </td>
+                </tr>
+              ) : (
+                advanceReport.map((item) => (
+                  <tr key={item.transaction.id || `${item.transaction.receiptNo}-${item.transaction.date}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <td className="py-3 px-4 font-mono text-slate-400 dark:text-slate-500 print:text-black">#{item.transaction.receiptNo}</td>
+                    <td className="py-3 px-4 font-black text-slate-800 dark:text-white print:text-black">{item.flatNumber}</td>
+                    <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300 print:text-black">{item.ownerName}</td>
+                    <td className="py-3 px-4 text-slate-500 dark:text-slate-400 print:text-black">{formatShortDate(item.paymentDate)}</td>
+                    <td className="py-3 px-4 font-bold text-green-700 dark:text-green-400 print:text-black">
+                      {item.advanceMonthsStr}
+                    </td>
+                    <td className="py-3 px-4 text-right font-black text-green-600 dark:text-green-400 print:text-black">
+                      {formatCurrency(item.advanceAmount)}
+                    </td>
+                    <td className="py-3 px-4 text-center no-print">
+                      {item.mobile && (
+                        <a 
+                          href={generateWhatsAppLink(item.mobile, item.transaction.receiptNo, item.ownerName, item.flatNumber, item.transaction.amount, formatDate(item.paymentDate))} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          className="inline-flex items-center justify-center text-green-600 dark:text-green-400 p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                          title="Share Receipt via WhatsApp"
+                        >
+                          <Share2 size={16} />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+              {advanceReport.length > 0 && (
+                <tr className="bg-slate-50 dark:bg-slate-800/50 print:bg-slate-100 font-black">
+                  <td colSpan={5} className="py-3 px-4 text-right uppercase text-[10px] tracking-widest text-slate-500 print:text-black">
+                    Total Advance Collected ({advanceReport.length} Members)
+                  </td>
+                  <td className="py-3 px-4 text-right text-green-600 dark:text-green-400 print:text-black">
+                    {formatCurrency(totalAdvanceAmount)}
+                  </td>
+                  <td className="no-print"></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* PRINT FOOTER */}
+        <div className="hidden print:block mt-20">
+          <div className="flex justify-between px-10">
+            <div className="text-center">
+              <div className="w-32 border-t border-black mb-1"></div>
+              <p className="text-xs font-bold uppercase">Treasurer Signature</p>
+            </div>
+            <div className="text-center">
+              <div className="w-32 border-t border-black mb-1"></div>
+              <p className="text-xs font-bold uppercase">Chairman Signature</p>
+            </div>
+          </div>
+          <p className="text-center text-[8px] text-slate-500 mt-10">Document generated by Continental Heights B Wing Manager App on {new Date().toLocaleString()}</p>
+        </div>
       </div>
     );
   };
@@ -945,6 +1168,10 @@ const renderBankTransferReport = () => {
                 <FileSpreadsheet size={14} className="mr-2 hidden sm:inline" />
                 Billing
              </button>
+             <button onClick={() => setActiveTab('ADVANCE')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'ADVANCE' ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
+                <Sparkles size={14} className="mr-2 hidden sm:inline" />
+                Advance
+             </button>
              <button onClick={() => setActiveTab('AUDIT')} className={`flex-1 min-w-[100px] py-2.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center justify-center transition-all ${activeTab === 'AUDIT' ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-sm' : 'text-slate-500 dark:text-slate-400'}`}>
                 <FileText size={14} className="mr-2 hidden sm:inline" />
                 Audit
@@ -964,6 +1191,7 @@ const renderBankTransferReport = () => {
 
           {activeTab === 'UNPAID' && renderUnpaidList()}
           {activeTab === 'BILLING' && renderBillingReport()}
+          {activeTab === 'ADVANCE' && renderAdvanceReport()}
           {activeTab === 'AUDIT' && renderAuditReport()}
           {activeTab === 'BANK_TRANSFER' && renderBankTransferReport()}
        </div>

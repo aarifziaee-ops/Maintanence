@@ -70,61 +70,76 @@ export const formatMonthYear = (dateString: string): string => {
 const MONTHS_LONG = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 const MONTHS_SHORT = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
-export const getTransactionsForMonth = (transactions: any[], targetMonthStr: string): any[] => {
-  // targetMonthStr is YYYY-MM
-  const d = new Date(targetMonthStr + '-01');
-  const targetMonthIndex = d.getMonth();
-  
-  const targetMonthLong = MONTHS_LONG[targetMonthIndex];
-  const targetMonthShort = MONTHS_SHORT[targetMonthIndex];
-  
-  const targetMonthNumStr = (targetMonthIndex + 1).toString().padStart(2, '0');
-  const targetYearStr = d.getFullYear().toString();
-  const targetShortYear = targetYearStr.slice(-2);
-  const targetMonthRegex = new RegExp(`\\b(${targetMonthLong}|${targetMonthShort})\\b`, 'i');
+const MONTH_NAME_TO_INDEX: Record<string, string> = {
+  january: '01', jan: '01',
+  february: '02', feb: '02',
+  march: '03', mar: '03',
+  april: '04', apr: '04',
+  may: '05',
+  june: '06', jun: '06',
+  july: '07', jul: '07',
+  august: '08', aug: '08',
+  september: '09', sep: '09', sept: '09',
+  october: '10', oct: '10',
+  november: '11', nov: '11',
+  december: '12', dec: '12'
+};
 
-  return transactions.filter(t => {
-    let explicitlyMatchesTarget = false;
-    let explicitlyMatchesOther = false;
+const remarksMonthCache = new Map<string, string[]>();
 
-    if (t.remarks) {
-       const rm = t.remarks.toLowerCase();
-       
-       if (rm.includes(targetMonthLong) || targetMonthRegex.test(rm) || 
-           rm.includes(`${targetMonthShort}${targetYearStr}`) || rm.includes(`${targetMonthShort}${targetShortYear}`) ||
-           rm.includes(targetMonthStr) || rm.includes(`${targetMonthNumStr}/${targetYearStr}`) || 
-           rm.includes(`${targetMonthNumStr}-${targetYearStr}`) || rm.includes(`${targetMonthNumStr}/${targetShortYear}`) || 
-           rm.includes(`${targetMonthNumStr}-${targetShortYear}`)) {
-           explicitlyMatchesTarget = true;
-       }
-       
-       if (!explicitlyMatchesTarget) {
-          for (let i = 0; i < 12; i++) {
-             if (i === targetMonthIndex) continue;
-             const otherM = MONTHS_LONG[i];
-             const otherS = MONTHS_SHORT[i];
-             const otherRegex = new RegExp(`\\b(${otherM}|${otherS})\\b`, 'i');
-             const otherNumStr = (i + 1).toString().padStart(2, '0');
-             
-             if (rm.includes(otherM) || otherRegex.test(rm) || 
-                 rm.includes(`${otherS}${targetYearStr}`) || rm.includes(`${otherS}${targetShortYear}`) ||
-                 rm.includes(`${targetYearStr}-${otherNumStr}`) || rm.includes(`${otherNumStr}/${targetYearStr}`) || 
-                 rm.includes(`${otherNumStr}-${targetYearStr}`) || rm.includes(`${otherNumStr}/${targetShortYear}`) || 
-                 rm.includes(`${otherNumStr}-${targetShortYear}`)) {
-                 explicitlyMatchesOther = true;
-                 break;
-             }
-          }
-       }
+export const parseMonthsFromRemarks = (remarks: string | undefined, dateStr: string): string[] => {
+  const cacheKey = `${dateStr || ''}_${remarks || ''}`;
+  if (remarksMonthCache.has(cacheKey)) {
+    return remarksMonthCache.get(cacheKey)!;
+  }
+
+  if (!remarks || !remarks.trim()) {
+    const res = [dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7)];
+    remarksMonthCache.set(cacheKey, res);
+    return res;
+  }
+
+  const rm = remarks.toLowerCase();
+
+  if (rm.includes('[') && rm.includes(']')) {
+    const res = [dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7)];
+    remarksMonthCache.set(cacheKey, res);
+    return res;
+  }
+
+  const yearMatches = rm.match(/\b(20\d\d)\b/g);
+  let defaultYear = dateStr ? dateStr.substring(0, 4) : new Date().getFullYear().toString();
+  if (yearMatches && yearMatches.length > 0) {
+    defaultYear = yearMatches[yearMatches.length - 1];
+  }
+
+  const foundMonths: string[] = [];
+  const monthNamesRegex = /\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec)\b/gi;
+  let match;
+  while ((match = monthNamesRegex.exec(rm)) !== null) {
+    const monthKey = match[1].toLowerCase();
+    const monthNum = MONTH_NAME_TO_INDEX[monthKey];
+    if (monthNum) {
+      foundMonths.push(`${defaultYear}-${monthNum}`);
     }
+  }
 
-    if (explicitlyMatchesTarget) return true;
-    if (explicitlyMatchesOther) return false;
-    
-    // Default to transaction date if no month specified in remarks
-    if (t.date && t.date.startsWith(targetMonthStr)) return true;
+  if (foundMonths.length > 0) {
+    const uniqueMonths = Array.from(new Set(foundMonths)).sort();
+    remarksMonthCache.set(cacheKey, uniqueMonths);
+    return uniqueMonths;
+  }
 
-    return false;
+  const res = [dateStr ? dateStr.substring(0, 7) : new Date().toISOString().substring(0, 7)];
+  remarksMonthCache.set(cacheKey, res);
+  return res;
+};
+
+export const getTransactionsForMonth = (transactions: any[], targetMonthStr: string): any[] => {
+  if (!transactions || !Array.isArray(transactions)) return [];
+  return transactions.filter(t => {
+    const months = parseMonthsFromRemarks(t.remarks, t.date);
+    return months.includes(targetMonthStr);
   });
 };
 
@@ -194,14 +209,20 @@ export const getOutstandingBreakdown = (
   
   const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   
+  const flatPaidMonths = new Set<string>();
+  if (transactions && transactions.length > 0) {
+    transactions.forEach(t => {
+      if (t.flatId === flat.id) {
+        const months = parseMonthsFromRemarks(t.remarks, t.date);
+        months.forEach(m => flatPaidMonths.add(m));
+      }
+    });
+  }
+
   while (currYear < targetYear || (currYear === targetYear && currMonth < targetMonth)) {
     // Format YYYY-MM
     const monthStr = `${currYear}-${currMonth.toString().padStart(2, '0')}`;
-    const monthTransactions = getTransactionsForMonth(transactions, monthStr);
-    
-    // If they have ANY transaction for this month, consider it paid.
-    // This perfectly matches the logic of the "Pending" page month-wise.
-    const hasPaid = monthTransactions.some(t => t.flatId === flat.id);
+    const hasPaid = flatPaidMonths.has(monthStr);
     
     if (!hasPaid) {
       const monthlyDue = calculateMaintenanceForMonth(flat, currYear, currMonth);
@@ -268,7 +289,8 @@ export const generateSmartBillLink = (
      arrearsText = `\nAdvance Balance: *Rs. ${Math.abs(arrears)}*`;
   }
     
-  const message = `*MAINTENANCE BILL*\n${BUILDING_NAME}\n\nDear ${name || 'Member'},\n\nYour maintenance bill for *${monthStr}* has been generated for Flat *${flat}*.\n\nCurrent Month: *Rs. ${current}*${arrearsText}\n*Total Payable: Rs. ${total}*\n\nPlease pay by the 10th of every month so that we can run the services of the building.\n\nSociety office timing is from 8:00 PM to 10:00 PM.\n\nThank you.`;
+  const currentText = current > 0 ? `Rs. ${current}` : 'Rs. 0 (Already Paid)';
+  const message = `*MAINTENANCE BILL*\n${BUILDING_NAME}\n\nDear ${name || 'Member'},\n\nYour maintenance bill for *${monthStr}* has been generated for Flat *${flat}*.\n\nCurrent Month: *${currentText}*${arrearsText}\n*Total Payable: Rs. ${total}*\n\nPlease pay by the 10th of every month so that we can run the services of the building.\n\nSociety office timing is from 8:00 PM to 10:00 PM.\n\nThank you.`;
   
   return `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
 };
